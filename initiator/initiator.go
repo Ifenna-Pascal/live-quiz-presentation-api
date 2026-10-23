@@ -86,6 +86,6 @@ func Init() {
 	routersList = append(routersList, presentationRouting...)
 	routersList = append(routersList, voteRouting...)
 	routersList = append(routersList, playerRouting...)
-	server := routers.NewRouting(config.ServerAddress, routersList)
+	server := routers.NewRouting(config.ServerAddress, routersList, config.AllowedOrigins())
 	server.Serve()
 }

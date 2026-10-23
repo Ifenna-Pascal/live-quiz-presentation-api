@@ -91,6 +91,40 @@ definitions:
         example: The presentation ran out of polls.
         type: string
     type: object
+  model.LeaderboardEntry:
+    properties:
+      answered:
+        description: Answered is the number of polls the player voted on.
+        example: 4
+        type: integer
+      player_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      player_name:
+        example: Ada
+        type: string
+      rank:
+        description: Rank starts at 1. Players with the same score share a rank.
+        example: 1
+        type: integer
+      score:
+        description: Score is the number of polls answered correctly.
+        example: 3
+        type: integer
+    type: object
+  model.LeaderboardResponse:
+    properties:
+      entries:
+        items:
+          $ref: '#/definitions/model.LeaderboardEntry'
+        type: array
+      scored_polls:
+        description: |-
+          ScoredPolls is the highest score possible so far: displayed polls that
+          have a correct answer.
+        example: 4
+        type: integer
+    type: object
   model.LoginUserRequestDTO:
     properties:
       email:
@@ -118,8 +152,33 @@ definitions:
       token:
         type: string
     type: object
+  model.MyPresentationResponse:
+    properties:
+      created_at:
+        example: "2026-10-23T14:00:00Z"
+        type: string
+      current_poll_index:
+        example: 1
+        type: integer
+      has_started:
+        example: false
+        type: boolean
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
+      poll_count:
+        example: 5
+        type: integer
+    type: object
   model.Option:
     properties:
+      correct:
+        description: |-
+          Correct marks the right answer when creating a presentation. It is never
+          filled in responses (the poll queries do not select it), so players
+          cannot see the answer; omitempty keeps it out of the JSON.
+        example: true
+        type: boolean
       key:
         example: A
         type: string
@@ -155,11 +214,39 @@ definitions:
     - options
     - question
     type: object
+  model.PresentationVoteResponse:
+    properties:
+      is_correct:
+        example: true
+        type: boolean
+      key:
+        example: A
+        type: string
+      player_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      player_name:
+        example: Ada
+        type: string
+      poll_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      poll_index:
+        example: 1
+        type: integer
+    type: object
   model.PresentionResponseDTO:
     properties:
       current_poll_index:
         example: 1
         type: integer
+      has_started:
+        description: HasStarted is false while players can still register.
+        example: false
+        type: boolean
+      id:
+        example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
+        type: string
       polls:
         items:
           $ref: '#/definitions/model.PresentationResponsePoll'
@@ -247,8 +334,9 @@ paths:
       - presentations
   /presentations/{presentation_id}:
     get:
-      description: Returns the index of the poll currently displayed and all polls
-        of the presentation.
+      description: Returns the index of the poll currently displayed, whether the
+        presentation has started (`has_started` is false while players can still register),
+        and all polls of the presentation. Correct answers are never included.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -285,6 +373,51 @@ paths:
       summary: Get a presentation
       tags:
       - presentations
+  /presentations/{presentation_id}/leaderboard:
+    get:
+      description: Ranks every registered player by the number of polls answered correctly
+        (one point per correct vote). Polls without a correct option are not scored.
+        Players with the same score share a rank. Only the owner of the presentation
+        can do this.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.LeaderboardResponse'
+        "400":
+          description: Invalid `presentation_id`
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: The logged-in user does not own the presentation
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Get the leaderboard
+      tags:
+      - votes
   /presentations/{presentation_id}/players:
     get:
       description: Returns every player registered in the presentation, in the order
@@ -368,7 +501,7 @@ paths:
   /presentations/{presentation_id}/polls/{poll_id}/votes:
     get:
       description: Returns every vote cast on the given poll, ordered by option key.
-        The poll must be the one currently displayed.
+        Any poll of the presentation can be read, including past ones.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -392,10 +525,7 @@ paths:
               $ref: '#/definitions/model.VoteResponse'
             type: array
         "400":
-          description: '`poll_id` is not the current poll. (An invalid UUID in the
-            path also gives 400, with an empty body.)'
-          schema:
-            $ref: '#/definitions/model.ErrorResponse'
+          description: An invalid UUID in the path (empty body)
         "404":
           description: Presentation or poll not found
           schema:
@@ -582,6 +712,51 @@ paths:
       summary: Start a presentation
       tags:
       - players
+  /presentations/{presentation_id}/votes:
+    get:
+      description: Returns every vote of every poll, ordered by poll, with whether
+        each vote was correct. Only the owner of the presentation can do this.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.PresentationVoteResponse'
+            type: array
+        "400":
+          description: Invalid `presentation_id`
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: The logged-in user does not own the presentation
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List all votes of a presentation
+      tags:
+      - votes
   /users:
     post:
       consumes:
@@ -661,6 +836,46 @@ paths:
       summary: Log in a user
       tags:
       - users
+  /users/me/presentations:
+    get:
+      description: Returns the presentations owned by the logged-in user, newest first.
+      parameters:
+      - default: 20
+        description: Page size (1-100)
+        in: query
+        name: limit
+        type: integer
+      - default: 0
+        description: Number of presentations to skip
+        in: query
+        name: offset
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.MyPresentationResponse'
+            type: array
+        "400":
+          description: Invalid `limit` or `offset`
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: List my presentations
+      tags:
+      - presentations
 schemes:
 - http
 securityDefinitions:
