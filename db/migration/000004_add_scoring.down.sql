@@ -1,0 +1,2 @@
+ALTER TABLE presentations DROP COLUMN IF EXISTS createdAt;
+ALTER TABLE options DROP COLUMN IF EXISTS isCorrect;

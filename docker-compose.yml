@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: postgres:14-alpine
+    env_file:
+      - app.env
+    # Published so that the app can also reach the database when it runs on
+    # this machine (with `air`) instead of in the api container.
+    ports:
+      - "5432:5432"
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8081:8081"
+    depends_on:
+      - postgres
+    restart: on-failure
+    entrypoint:
+      [
+        "/app/wait-for.sh",
+        "postgres:5432",
+        "--",
+        "/app/main"
+      ]

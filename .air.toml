@@ -1,0 +1,20 @@
+# Config for air (live reload): run `air` in the project root.
+# On every change to a watched file air runs pre_cmd, then cmd, then restarts
+# the app.
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  # Regenerate the Swagger docs first, so the docs package is always up to date.
+  pre_cmd = ["swag init -g cmd/rest/main.go"]
+  # main.go lives in cmd/rest, not in the project root.
+  cmd = "go build -o ./tmp/main ./cmd/rest"
+  # app.env points DB_SOURCE at the host "postgres", a name that only exists
+  # inside the docker-compose network. air runs the app on this machine, so
+  # swap the host for localhost (docker-compose.yml publishes port 5432).
+  full_bin = "DB_SOURCE=$(grep '^DB_SOURCE=' app.env | cut -d= -f2- | sed 's/@postgres:/@localhost:/') ./tmp/main"
+  include_ext = ["go", "sql", "env"]
+  # docs is excluded because pre_cmd rewrites it on every build; watching it
+  # would make air rebuild forever.
+  exclude_dir = ["tmp", "docs", ".qodo"]
+  stop_on_error = true

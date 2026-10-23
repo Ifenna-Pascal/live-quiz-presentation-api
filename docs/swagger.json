@@ -1,0 +1,976 @@
+{
+    "schemes": [
+        "http"
+    ],
+    "swagger": "2.0",
+    "info": {
+        "description": "Create presentations made of polls, step through the polls one at a time, and collect votes on the poll currently displayed.",
+        "title": "Interactive Presentation API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "basePath": "/",
+    "paths": {
+        "/ping": {
+            "get": {
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Health check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Creates a presentation owned by the logged-in user, together with its polls and their options. No poll is displayed yet: `current_poll_index` starts at 0 until the first `PUT .../polls/current`.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Create a presentation",
+                "parameters": [
+                    {
+                        "description": "The polls of the presentation, in display order",
+                        "name": "presentation",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreatePresentionRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.CreatePresentationResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is missing mandatory fields, has a wrong type, or contains no polls",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}": {
+            "get": {
+                "description": "Returns the index of the poll currently displayed and all polls of the presentation.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Get a presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/model.PresentionResponseDTO"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "polls": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/model.Poll"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "`presentation_id` is not a valid UUID",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/players": {
+            "get": {
+                "description": "Returns every player registered in the presentation, in the order they registered.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "players"
+                ],
+                "summary": "List the players of a presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.CreatedPresentationPlayerResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `presentation_id`",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "description": "Registers a player in a presentation. Registration is only open until the presentation starts, and a name can be used only once per presentation.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "players"
+                ],
+                "summary": "Register a player",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The player",
+                        "name": "player",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.RegisterPlayerToPresentation"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.CreatedPresentationPlayerResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid `presentation_id`, invalid body, or empty `player_name`",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Presentation not found or already started, or `player_name` already taken",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/polls/current": {
+            "get": {
+                "description": "Returns the poll that is currently displayed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "polls"
+                ],
+                "summary": "Get the current poll",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CurrentPoll"
+                        }
+                    },
+                    "400": {
+                        "description": "No poll is currently displayed. (An invalid `presentation_id` also gives 400, with a plain JSON string as body.)",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Moves the presentation forward by one poll and returns the poll that is now displayed. Only the owner of the presentation can do this.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "polls"
+                ],
+                "summary": "Display the next poll",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CurrentPoll"
+                        }
+                    },
+                    "400": {
+                        "description": "`presentation_id` is not a valid UUID, or the presentation ran out of polls",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "The logged-in user does not own the presentation",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/polls/current/votes": {
+            "post": {
+                "description": "Records one vote of a registered player for an option of the poll currently displayed. `poll_id` must be the ID of that poll, and the presentation must have started.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "votes"
+                ],
+                "summary": "Vote on the current poll",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The vote",
+                        "name": "vote",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreateVoteRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Vote recorded"
+                    },
+                    "400": {
+                        "description": "Invalid `presentation_id`, invalid body, `poll_id` is not the current poll, no poll displayed yet, or unknown option key",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "`player_id` is not registered in this presentation, or the presentation has not started",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation or poll not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "The player already voted on this poll",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Any other failure",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/polls/{poll_id}/votes": {
+            "get": {
+                "description": "Returns every vote cast on the given poll, ordered by option key. The poll must be the one currently displayed.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "votes"
+                ],
+                "summary": "List the votes of a poll",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Poll ID",
+                        "name": "poll_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.VoteResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "`poll_id` is not the current poll. (An invalid UUID in the path also gives 400, with an empty body.)",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation or poll not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/start": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Starts the presentation: closes player registration, opens voting and displays the first poll. Only the owner of the presentation can do this.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "players"
+                ],
+                "summary": "Start a presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Presentation started and first poll displayed"
+                    },
+                    "400": {
+                        "description": "Invalid `presentation_id`",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "The logged-in user does not own the presentation",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Presentation already started",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users": {
+            "post": {
+                "description": "Creates a user. The password is hashed before it is stored and is never returned.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Create a user",
+                "parameters": [
+                    {
+                        "description": "The new user",
+                        "name": "user",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreateUserRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.CreateUserResponseDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is missing mandatory fields, the email is invalid, or the password is shorter than 8 characters",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "A user with this email already exists",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/login": {
+            "post": {
+                "description": "Checks the email and password and returns the user with a signed access token.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Log in a user",
+                "parameters": [
+                    {
+                        "description": "Email and password",
+                        "name": "credentials",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.LoginUserRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.LoginUserResponseDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Body is missing mandatory fields or the email is invalid",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "The email or password is wrong",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "model.CreatePresentationResponse": {
+            "type": "object",
+            "properties": {
+                "presentation_id": {
+                    "type": "string",
+                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                }
+            }
+        },
+        "model.CreatePresentionRequestDTO": {
+            "type": "object",
+            "properties": {
+                "polls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Poll"
+                    }
+                }
+            }
+        },
+        "model.CreateUserRequestDTO": {
+            "type": "object",
+            "required": [
+                "email",
+                "name",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "ada@example.com"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Ada Lovelace"
+                },
+                "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "example": "s3cretpass"
+                }
+            }
+        },
+        "model.CreateUserResponseDTO": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "ada@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Ada Lovelace"
+                }
+            }
+        },
+        "model.CreateVoteRequestDTO": {
+            "type": "object",
+            "required": [
+                "key",
+                "player_id",
+                "poll_id"
+            ],
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "example": "A"
+                },
+                "player_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "poll_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                }
+            }
+        },
+        "model.CreatedPresentationPlayerResponse": {
+            "type": "object",
+            "properties": {
+                "player_id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "player_name": {
+                    "type": "string",
+                    "example": "Ada"
+                }
+            }
+        },
+        "model.CurrentPoll": {
+            "type": "object",
+            "required": [
+                "options",
+                "question"
+            ],
+            "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Option"
+                    }
+                },
+                "question": {
+                    "type": "string",
+                    "example": "What is your favourite language?"
+                }
+            }
+        },
+        "model.ErrorResponse": {
+            "type": "object",
+            "properties": {
+                "error": {
+                    "type": "string",
+                    "example": "The presentation ran out of polls."
+                }
+            }
+        },
+        "model.LoginUserRequestDTO": {
+            "type": "object",
+            "required": [
+                "email",
+                "password"
+            ],
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "ada@example.com"
+                },
+                "password": {
+                    "type": "string",
+                    "minLength": 8,
+                    "example": "s3cretpass"
+                }
+            }
+        },
+        "model.LoginUserResponseDTO": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "example": "ada@example.com"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "name": {
+                    "type": "string",
+                    "example": "Ada Lovelace"
+                },
+                "token": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.Option": {
+            "type": "object",
+            "required": [
+                "key",
+                "value"
+            ],
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "example": "A"
+                },
+                "value": {
+                    "type": "string",
+                    "example": "Go"
+                }
+            }
+        },
+        "model.Poll": {
+            "type": "object",
+            "required": [
+                "options",
+                "question"
+            ],
+            "properties": {
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.Option"
+                    }
+                },
+                "question": {
+                    "type": "string",
+                    "example": "What is your favourite language?"
+                }
+            }
+        },
+        "model.PresentationResponsePoll": {
+            "type": "object",
+            "required": [
+                "options",
+                "question"
+            ],
+            "properties": {
+                "options": {
+                    "type": "array",
+                    "items": {
+                        "type": "object"
+                    }
+                },
+                "question": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.PresentionResponseDTO": {
+            "type": "object",
+            "properties": {
+                "current_poll_index": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "polls": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/model.PresentationResponsePoll"
+                    }
+                }
+            }
+        },
+        "model.RegisterPlayerToPresentation": {
+            "type": "object",
+            "required": [
+                "player_name"
+            ],
+            "properties": {
+                "player_name": {
+                    "type": "string",
+                    "example": "Ada"
+                }
+            }
+        },
+        "model.VoteResponse": {
+            "type": "object",
+            "properties": {
+                "key": {
+                    "type": "string",
+                    "example": "A"
+                },
+                "player_id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "player_name": {
+                    "type": "string",
+                    "example": "Ada"
+                }
+            }
+        }
+    },
+    "securityDefinitions": {
+        "BearerAuth": {
+            "description": "Type \"Bearer \" followed by the token returned by POST /users/login.",
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    }
+}

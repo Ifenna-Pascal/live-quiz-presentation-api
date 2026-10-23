@@ -1,0 +1,4 @@
+{
+  "mssql.intelliSense.enableErrorChecking": false,
+  "Prettier-SQL.SQLFlavourOverride": "postgresql"
+}
