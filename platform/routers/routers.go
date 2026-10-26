@@ -41,6 +41,11 @@ func NewRouting(address string, routers []Route, allowedOrigins []string) Router
 
 func (r *routing) Serve() {
 	ginRouter := gin.New()
+	// Only trust X-Forwarded-For from proxies on private networks (nginx,
+	// docker), so clients cannot fake their IP to dodge rate limits.
+	if err := ginRouter.SetTrustedProxies([]string{"127.0.0.1", "::1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"}); err != nil {
+		panic(err)
+	}
 	ginRouter.Use(gin.Logger())
 	ginRouter.Use(gin.Recovery())
 	ginRouter.Use(CORSHandler(r.allowedOrigins))
@@ -65,13 +70,11 @@ func (r *routing) Serve() {
 
 	ginRouter.NoMethod(NoMethodHandler)
 	ginRouter.NoRoute(NoRouteHandler)
-	err := ginRouter.Run(r.address)
-	if err != nil {
+	fmt.Printf("listening on %s\n", r.address)
+	if err := ginRouter.Run(r.address); err != nil {
 		// panic stops the program immediately with an error message.
 		panic(err)
 	}
-	fmt.Printf("started at %s", r.address)
-	ginRouter.Run(r.address)
 }
 
 // CORSHandler lets web pages from other websites call the API.

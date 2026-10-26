@@ -3,9 +3,10 @@
 -- Returns no row (sql.ErrNoRows) if the presentation does not exist or has started.
 INSERT INTO players (
     presentationID,
-    playerName
+    playerName,
+    secretHash
 )
-SELECT p.id, sqlc.arg(player_name)
+SELECT p.id, sqlc.arg(player_name), sqlc.arg(secret_hash)::TEXT
 FROM presentations p
 WHERE p.id = sqlc.arg(presentation_id)
     AND p.hasStarted = FALSE
@@ -26,7 +27,7 @@ FROM players
 WHERE id = sqlc.arg(player_id)
     AND presentationID = sqlc.arg(presentation_id);
 
--- name: RemovePlayerFromPresentation :exec
+-- name: RemovePlayerFromPresentation :execrows
 DELETE FROM players
 WHERE id = sqlc.arg(player_id)
     AND presentationID = sqlc.arg(presentation_id);

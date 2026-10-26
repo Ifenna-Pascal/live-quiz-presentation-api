@@ -1,0 +1,40 @@
+# Production overrides. Run with:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# Changes from the dev setup:
+# - Postgres keeps its data in a volume and is no longer reachable from outside.
+# - The api and web containers are only reachable through Caddy.
+# - Caddy serves the site on 80/443 and gets HTTPS certificates automatically.
+# Needs Docker Compose v2.24+ (for !reset).
+services:
+  postgres:
+    ports: !reset []
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  api:
+    ports: !reset []
+    restart: unless-stopped
+
+  web:
+    ports: !reset []
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.8-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

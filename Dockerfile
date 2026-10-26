@@ -12,6 +12,8 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 FROM alpine:3.24
 WORKDIR /app
 COPY --from=builder /app/main .
-COPY app.env wait-for.sh ./ 
+# Settings come from environment variables (or an app.env mounted/passed at
+# run time); app.env is git-ignored, so it is not baked into the image.
+COPY wait-for.sh ./
 COPY db/migration ./db/migration
 ENTRYPOINT [ "/app/main" ]

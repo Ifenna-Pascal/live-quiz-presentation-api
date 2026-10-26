@@ -26,26 +26,51 @@ func AuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Missing or malformed Authorization header. Expected: Bearer <token>."})
 			return
 		}
-
-		subject, err := tokenMaker.VerifyToken(strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix)))
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token."})
+		if !setUserFromToken(c, tokenMaker, header) {
 			return
 		}
-
-		userID, err := uuid.Parse(subject)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token."})
-			return
-		}
-
-		c.Set(authUserIDKey, userID)
 		c.Next()
 	}
 }
 
-// AuthUserID returns the ID of the logged-in user, as stored by AuthMiddleware.
-// It returns false if the route is not behind AuthMiddleware.
+// OptionalAuthMiddleware lets anonymous requests through, but when an
+// Authorization header is present it must be valid (401 otherwise, so the
+// client knows to refresh its token).
+func OptionalAuthMiddleware(tokenMaker token.Maker) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		header := c.GetHeader(authorizationHeader)
+		if header == "" {
+			c.Next()
+			return
+		}
+		if !strings.HasPrefix(header, bearerPrefix) {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Malformed Authorization header. Expected: Bearer <token>."})
+			return
+		}
+		if !setUserFromToken(c, tokenMaker, header) {
+			return
+		}
+		c.Next()
+	}
+}
+
+func setUserFromToken(c *gin.Context, tokenMaker token.Maker, header string) bool {
+	subject, err := tokenMaker.VerifyToken(strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix)))
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token."})
+		return false
+	}
+	userID, err := uuid.Parse(subject)
+	if err != nil {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "Invalid or expired token."})
+		return false
+	}
+	c.Set(authUserIDKey, userID)
+	return true
+}
+
+// AuthUserID returns the ID of the logged-in user, as stored by AuthMiddleware
+// or OptionalAuthMiddleware. It returns false for anonymous requests.
 func AuthUserID(c *gin.Context) (uuid.UUID, bool) {
 	value, exists := c.Get(authUserIDKey)
 	if !exists {

@@ -7,6 +7,7 @@ package persistence
 
 import (
 	"context"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -17,11 +18,14 @@ FROM polls
   JOIN presentations ON polls.presentationid = presentations.id
   JOIN options ON options.pollid = polls.id AND options.iscorrect
 WHERE presentations.id = $1
-  AND polls.pollindex <= presentations.currentpollindex
+  AND (polls.isrevealed
+    OR polls.winnerplayerid IS NOT NULL
+    OR polls.openedat + make_interval(secs => polls.timelimitseconds) <= clock_timestamp()
+    OR (presentations.hasfinished AND polls.pollindex <= presentations.currentpollindex))
 `
 
-// The highest score possible so far: polls that have a correct option and
-// have already been displayed.
+// The highest score possible so far: polls with a correct option that are
+// closed (won, revealed, timed out, or shown before the presentation finished).
 func (q *Queries) CountScoredPolls(ctx context.Context, presentationID uuid.UUID) (int32, error) {
 	row := q.db.QueryRowContext(ctx, countScoredPolls, presentationID)
 	var column_1 int32
@@ -39,39 +43,55 @@ FROM polls pl
   JOIN players pr ON pr.presentationID = p.id
 WHERE pl.id = $2
   AND pr.id = $3
+  AND pr.secretHash = $4::TEXT
   AND p.hasStarted = TRUE
-RETURNING id
+RETURNING id, createdat
 `
 
 type CreateVoteParams struct {
-	OptionKey string    `db:"option_key" json:"option_key"`
-	PollID    uuid.UUID `db:"poll_id" json:"poll_id"`
-	PlayerID  uuid.UUID `db:"player_id" json:"player_id"`
+	OptionKey        string    `db:"option_key" json:"option_key"`
+	PollID           uuid.UUID `db:"poll_id" json:"poll_id"`
+	PlayerID         uuid.UUID `db:"player_id" json:"player_id"`
+	PlayerSecretHash string    `db:"player_secret_hash" json:"player_secret_hash"`
+}
+
+type CreateVoteRow struct {
+	ID        uuid.UUID `db:"id" json:"id"`
+	Createdat time.Time `db:"createdat" json:"createdat"`
 }
 
 // Inserts a vote only if the player is registered in the same presentation
-// as the poll and the presentation has started.
+// as the poll, proves it with their secret, and the presentation has started.
 // Returns no row (sql.ErrNoRows) if any of those checks fail.
-func (q *Queries) CreateVote(ctx context.Context, arg CreateVoteParams) (uuid.UUID, error) {
-	row := q.db.QueryRowContext(ctx, createVote, arg.OptionKey, arg.PollID, arg.PlayerID)
-	var id uuid.UUID
-	err := row.Scan(&id)
-	return id, err
+func (q *Queries) CreateVote(ctx context.Context, arg CreateVoteParams) (CreateVoteRow, error) {
+	row := q.db.QueryRowContext(ctx, createVote,
+		arg.OptionKey,
+		arg.PollID,
+		arg.PlayerID,
+		arg.PlayerSecretHash,
+	)
+	var i CreateVoteRow
+	err := row.Scan(&i.ID, &i.Createdat)
+	return i, err
 }
 
 const getLeaderboard = `-- name: GetLeaderboard :many
 SELECT
   pr.id AS "player_id",
   pr.playerName AS "player_name",
-  COUNT(o.pollid)::INT AS "score",
-  COUNT(v.id)::INT AS "answered",
-  RANK() OVER (ORDER BY COUNT(o.pollid) DESC)::INT AS "rank"
+  COALESCE(w.wins, 0)::INT AS "score",
+  COALESCE(a.answered, 0)::INT AS "answered",
+  RANK() OVER (ORDER BY COALESCE(w.wins, 0) DESC)::INT AS "rank"
 FROM players pr
-  LEFT JOIN votes v ON v.playerid = pr.id
-  LEFT JOIN options o ON o.pollid = v.pollid AND o.optionkey = v.optionkey AND o.iscorrect
+  LEFT JOIN (
+    SELECT winnerplayerid, COUNT(*) AS wins, SUM(EXTRACT(EPOCH FROM wonat - openedat)) AS seconds
+    FROM polls WHERE winnerplayerid IS NOT NULL GROUP BY winnerplayerid
+  ) w ON w.winnerplayerid = pr.id
+  LEFT JOIN (
+    SELECT playerid, COUNT(DISTINCT pollid) AS answered FROM votes GROUP BY playerid
+  ) a ON a.playerid = pr.id
 WHERE pr.presentationID = $1
-GROUP BY pr.id, pr.playerName
-ORDER BY "score" DESC, pr.playerName
+ORDER BY "score" DESC, w.seconds ASC NULLS LAST, pr.playerName
 `
 
 type GetLeaderboardRow struct {
@@ -82,8 +102,9 @@ type GetLeaderboardRow struct {
 	Rank       int32     `db:"rank" json:"rank"`
 }
 
-// One row per registered player: one point per vote on a correct option.
-// Players who never voted are included with 0. Ties share the same rank.
+// One point per poll won (first correct answer). `answered` is the number of
+// polls the player tried. Ties share a rank; the faster total winning time
+// breaks the order within a tie.
 func (q *Queries) GetLeaderboard(ctx context.Context, presentationID uuid.UUID) ([]GetLeaderboardRow, error) {
 	rows, err := q.db.QueryContext(ctx, getLeaderboard, presentationID)
 	if err != nil {
@@ -124,7 +145,7 @@ FROM votes
   JOIN players ON votes.playerid = players.id
 WHERE presentations.id = $1
   AND polls.id = $2
-ORDER BY votes.optionkey
+ORDER BY votes.createdat
 `
 
 type GetVotesParams struct {

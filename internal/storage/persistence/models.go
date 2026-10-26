@@ -11,6 +11,17 @@ import (
 	"github.com/google/uuid"
 )
 
+type Message struct {
+	ID             uuid.UUID     `db:"id" json:"id"`
+	Presentationid uuid.UUID     `db:"presentationid" json:"presentationid"`
+	Playerid       uuid.NullUUID `db:"playerid" json:"playerid"`
+	Authorid       uuid.UUID     `db:"authorid" json:"authorid"`
+	Authorname     string        `db:"authorname" json:"authorname"`
+	Authorrole     string        `db:"authorrole" json:"authorrole"`
+	Body           string        `db:"body" json:"body"`
+	Createdat      time.Time     `db:"createdat" json:"createdat"`
+}
+
 type Option struct {
 	ID          uuid.UUID `db:"id" json:"id"`
 	Pollid      uuid.UUID `db:"pollid" json:"pollid"`
@@ -20,18 +31,24 @@ type Option struct {
 }
 
 type Player struct {
-	ID             uuid.UUID    `db:"id" json:"id"`
-	Presentationid uuid.UUID    `db:"presentationid" json:"presentationid"`
-	Playername     string       `db:"playername" json:"playername"`
-	Createdat      sql.NullTime `db:"createdat" json:"createdat"`
+	ID             uuid.UUID      `db:"id" json:"id"`
+	Presentationid uuid.UUID      `db:"presentationid" json:"presentationid"`
+	Playername     string         `db:"playername" json:"playername"`
+	Createdat      sql.NullTime   `db:"createdat" json:"createdat"`
+	Secrethash     sql.NullString `db:"secrethash" json:"secrethash"`
 }
 
 type Poll struct {
-	ID             uuid.UUID    `db:"id" json:"id"`
-	Presentationid uuid.UUID    `db:"presentationid" json:"presentationid"`
-	Question       string       `db:"question" json:"question"`
-	Pollindex      int32        `db:"pollindex" json:"pollindex"`
-	Createdat      sql.NullTime `db:"createdat" json:"createdat"`
+	ID               uuid.UUID     `db:"id" json:"id"`
+	Presentationid   uuid.UUID     `db:"presentationid" json:"presentationid"`
+	Question         string        `db:"question" json:"question"`
+	Pollindex        int32         `db:"pollindex" json:"pollindex"`
+	Createdat        sql.NullTime  `db:"createdat" json:"createdat"`
+	Isrevealed       bool          `db:"isrevealed" json:"isrevealed"`
+	Timelimitseconds int32         `db:"timelimitseconds" json:"timelimitseconds"`
+	Openedat         sql.NullTime  `db:"openedat" json:"openedat"`
+	Winnerplayerid   uuid.NullUUID `db:"winnerplayerid" json:"winnerplayerid"`
+	Wonat            sql.NullTime  `db:"wonat" json:"wonat"`
 }
 
 type Presentation struct {
@@ -40,6 +57,21 @@ type Presentation struct {
 	Userid           uuid.NullUUID `db:"userid" json:"userid"`
 	Hasstarted       bool          `db:"hasstarted" json:"hasstarted"`
 	Createdat        time.Time     `db:"createdat" json:"createdat"`
+	Title            string        `db:"title" json:"title"`
+	Hasfinished      bool          `db:"hasfinished" json:"hasfinished"`
+	Prizepool        sql.NullInt64 `db:"prizepool" json:"prizepool"`
+	Prizecurrency    string        `db:"prizecurrency" json:"prizecurrency"`
+}
+
+type Session struct {
+	ID               uuid.UUID `db:"id" json:"id"`
+	Userid           uuid.UUID `db:"userid" json:"userid"`
+	Refreshtokenhash string    `db:"refreshtokenhash" json:"refreshtokenhash"`
+	Useragent        string    `db:"useragent" json:"useragent"`
+	Clientip         string    `db:"clientip" json:"clientip"`
+	Isrevoked        bool      `db:"isrevoked" json:"isrevoked"`
+	Expiresat        time.Time `db:"expiresat" json:"expiresat"`
+	Createdat        time.Time `db:"createdat" json:"createdat"`
 }
 
 type User struct {
@@ -55,4 +87,5 @@ type Vote struct {
 	Pollid    uuid.UUID `db:"pollid" json:"pollid"`
 	Optionkey string    `db:"optionkey" json:"optionkey"`
 	Playerid  uuid.UUID `db:"playerid" json:"playerid"`
+	Createdat time.Time `db:"createdat" json:"createdat"`
 }

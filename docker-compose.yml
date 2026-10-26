@@ -11,6 +11,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    env_file:
+      - app.env
     ports:
       - "8081:8081"
     depends_on:
@@ -23,3 +25,12 @@ services:
         "--",
         "/app/main"
       ]
+  # The React frontend, served by nginx. It forwards /api to the api service,
+  # so the browser only ever talks to http://localhost:3000.
+  web:
+    build:
+      context: ../interactive-presentation-web
+    ports:
+      - "3000:80"
+    depends_on:
+      - api

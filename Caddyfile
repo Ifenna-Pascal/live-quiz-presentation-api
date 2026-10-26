@@ -1,0 +1,5 @@
+# Replace with your domain. Caddy gets and renews the HTTPS certificate for it.
+# The web container (nginx) serves the site and forwards /api to the Go API.
+yourdomain.com {
+	reverse_proxy web:80
+}

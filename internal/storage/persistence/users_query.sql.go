@@ -60,13 +60,36 @@ func (q *Queries) GetUser(ctx context.Context, email string) (User, error) {
 	return i, err
 }
 
+const getUserByID = `-- name: GetUserByID :one
+SELECT id, name, email, hashedpassword, createdat from users
+where id = $1 LIMIT 1
+`
+
+func (q *Queries) GetUserByID(ctx context.Context, id uuid.UUID) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByID, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.Email,
+		&i.Hashedpassword,
+		&i.Createdat,
+	)
+	return i, err
+}
+
 const listPresentationsByUser = `-- name: ListPresentationsByUser :many
 SELECT
   p.id,
+  p.title,
   p.currentpollindex,
   p.hasstarted,
+  p.hasfinished,
   p.createdat,
-  (SELECT COUNT(*) FROM polls WHERE polls.presentationid = p.id)::INT AS poll_count
+  p.prizepool,
+  p.prizecurrency,
+  (SELECT COUNT(*) FROM polls WHERE polls.presentationid = p.id)::INT AS poll_count,
+  (SELECT COUNT(*) FROM players WHERE players.presentationid = p.id)::INT AS player_count
 FROM presentations p
 WHERE p.userId = $1
 ORDER BY p.createdat DESC, p.id
@@ -82,10 +105,15 @@ type ListPresentationsByUserParams struct {
 
 type ListPresentationsByUserRow struct {
 	ID               uuid.UUID     `db:"id" json:"id"`
+	Title            string        `db:"title" json:"title"`
 	Currentpollindex sql.NullInt32 `db:"currentpollindex" json:"currentpollindex"`
 	Hasstarted       bool          `db:"hasstarted" json:"hasstarted"`
+	Hasfinished      bool          `db:"hasfinished" json:"hasfinished"`
 	Createdat        time.Time     `db:"createdat" json:"createdat"`
+	Prizepool        sql.NullInt64 `db:"prizepool" json:"prizepool"`
+	Prizecurrency    string        `db:"prizecurrency" json:"prizecurrency"`
 	PollCount        int32         `db:"poll_count" json:"poll_count"`
+	PlayerCount      int32         `db:"player_count" json:"player_count"`
 }
 
 func (q *Queries) ListPresentationsByUser(ctx context.Context, arg ListPresentationsByUserParams) ([]ListPresentationsByUserRow, error) {
@@ -99,10 +127,15 @@ func (q *Queries) ListPresentationsByUser(ctx context.Context, arg ListPresentat
 		var i ListPresentationsByUserRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.Title,
 			&i.Currentpollindex,
 			&i.Hasstarted,
+			&i.Hasfinished,
 			&i.Createdat,
+			&i.Prizepool,
+			&i.Prizecurrency,
 			&i.PollCount,
+			&i.PlayerCount,
 		); err != nil {
 			return nil, err
 		}

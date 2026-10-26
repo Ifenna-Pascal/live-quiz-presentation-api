@@ -15,36 +15,39 @@ import (
 const addPlayerToPresentation = `-- name: AddPlayerToPresentation :one
 INSERT INTO players (
     presentationID,
-    playerName
+    playerName,
+    secretHash
 )
-SELECT p.id, $1
+SELECT p.id, $1, $2::TEXT
 FROM presentations p
-WHERE p.id = $2
+WHERE p.id = $3
     AND p.hasStarted = FALSE
-RETURNING id, presentationid, playername, createdat
+RETURNING id, presentationid, playername, createdat, secrethash
 `
 
 type AddPlayerToPresentationParams struct {
 	PlayerName     string    `db:"player_name" json:"player_name"`
+	SecretHash     string    `db:"secret_hash" json:"secret_hash"`
 	PresentationID uuid.UUID `db:"presentation_id" json:"presentation_id"`
 }
 
 // Registers a player only while the presentation has not started.
 // Returns no row (sql.ErrNoRows) if the presentation does not exist or has started.
 func (q *Queries) AddPlayerToPresentation(ctx context.Context, arg AddPlayerToPresentationParams) (Player, error) {
-	row := q.db.QueryRowContext(ctx, addPlayerToPresentation, arg.PlayerName, arg.PresentationID)
+	row := q.db.QueryRowContext(ctx, addPlayerToPresentation, arg.PlayerName, arg.SecretHash, arg.PresentationID)
 	var i Player
 	err := row.Scan(
 		&i.ID,
 		&i.Presentationid,
 		&i.Playername,
 		&i.Createdat,
+		&i.Secrethash,
 	)
 	return i, err
 }
 
 const getPlayerInPresentation = `-- name: GetPlayerInPresentation :one
-SELECT id, presentationid, playername, createdat
+SELECT id, presentationid, playername, createdat, secrethash
 FROM players
 WHERE id = $1
     AND presentationID = $2
@@ -63,6 +66,7 @@ func (q *Queries) GetPlayerInPresentation(ctx context.Context, arg GetPlayerInPr
 		&i.Presentationid,
 		&i.Playername,
 		&i.Createdat,
+		&i.Secrethash,
 	)
 	return i, err
 }
@@ -106,7 +110,7 @@ func (q *Queries) GetPlayersInPresentation(ctx context.Context, presentationID u
 	return items, nil
 }
 
-const removePlayerFromPresentation = `-- name: RemovePlayerFromPresentation :exec
+const removePlayerFromPresentation = `-- name: RemovePlayerFromPresentation :execrows
 DELETE FROM players
 WHERE id = $1
     AND presentationID = $2
@@ -117,7 +121,10 @@ type RemovePlayerFromPresentationParams struct {
 	PresentationID uuid.UUID `db:"presentation_id" json:"presentation_id"`
 }
 
-func (q *Queries) RemovePlayerFromPresentation(ctx context.Context, arg RemovePlayerFromPresentationParams) error {
-	_, err := q.db.ExecContext(ctx, removePlayerFromPresentation, arg.PlayerID, arg.PresentationID)
-	return err
+func (q *Queries) RemovePlayerFromPresentation(ctx context.Context, arg RemovePlayerFromPresentationParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, removePlayerFromPresentation, arg.PlayerID, arg.PresentationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }

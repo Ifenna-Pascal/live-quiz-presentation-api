@@ -6,6 +6,7 @@ package persistence
 
 import (
 	"context"
+	"database/sql"
 
 	"github.com/google/uuid"
 )
@@ -14,37 +15,72 @@ type Querier interface {
 	// Registers a player only while the presentation has not started.
 	// Returns no row (sql.ErrNoRows) if the presentation does not exist or has started.
 	AddPlayerToPresentation(ctx context.Context, arg AddPlayerToPresentationParams) (Player, error)
-	// The highest score possible so far: polls that have a correct option and
-	// have already been displayed.
+	// The highest score possible so far: polls with a correct option that are
+	// closed (won, revealed, timed out, or shown before the presentation finished).
 	CountScoredPolls(ctx context.Context, presentationID uuid.UUID) (int32, error)
-	CreatePresentationAndPolls(ctx context.Context, arg CreatePresentationAndPollsParams) (uuid.UUID, error)
+	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
+	// Poll 0 is "nothing on screen yet". Starting moves to poll 1.
+	CreatePresentation(ctx context.Context, arg CreatePresentationParams) (uuid.UUID, error)
+	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	CreateUser(ctx context.Context, arg CreateUserParams) (User, error)
 	// Inserts a vote only if the player is registered in the same presentation
-	// as the poll and the presentation has started.
+	// as the poll, proves it with their secret, and the presentation has started.
 	// Returns no row (sql.ErrNoRows) if any of those checks fail.
-	CreateVote(ctx context.Context, arg CreateVoteParams) (uuid.UUID, error)
-	// One row per registered player: one point per vote on a correct option.
-	// Players who never voted are included with 0. Ties share the same rank.
+	CreateVote(ctx context.Context, arg CreateVoteParams) (CreateVoteRow, error)
+	DeletePolls(ctx context.Context, presentationID uuid.UUID) error
+	DeletePresentation(ctx context.Context, presentationID uuid.UUID) (int64, error)
+	// Returns no row unless the presentation is running.
+	FinishPresentation(ctx context.Context, presentationID uuid.UUID) (Presentation, error)
+	// One point per poll won (first correct answer). `answered` is the number of
+	// polls the player tried. Ties share a rank; the faster total winning time
+	// breaks the order within a tie.
 	GetLeaderboard(ctx context.Context, presentationID uuid.UUID) ([]GetLeaderboardRow, error)
-	GetNextPoll(ctx context.Context, id uuid.UUID) (GetNextPollRow, error)
 	GetPlayerInPresentation(ctx context.Context, arg GetPlayerInPresentationParams) (Player, error)
 	GetPlayersInPresentation(ctx context.Context, presentationID uuid.UUID) ([]GetPlayersInPresentationRow, error)
+	// The poll currently on screen, with its timer and winner.
 	GetPoll(ctx context.Context, presentationid uuid.UUID) (GetPollRow, error)
 	GetPresentation(ctx context.Context, id uuid.UUID) (Presentation, error)
 	GetPresentationAndPoll(ctx context.Context, arg GetPresentationAndPollParams) (GetPresentationAndPollRow, error)
-	GetPreviousPoll(ctx context.Context, id uuid.UUID) (GetPreviousPollRow, error)
+	// Locks the row so two refreshes with the same token cannot both succeed.
+	GetSessionByTokenHash(ctx context.Context, refreshTokenHash string) (Session, error)
 	GetUser(ctx context.Context, email string) (User, error)
+	GetUserByID(ctx context.Context, id uuid.UUID) (User, error)
 	GetVotes(ctx context.Context, arg GetVotesParams) ([]GetVotesRow, error)
+	// Inserts every poll of `polls` (a JSON array of {question, time_limit_seconds,
+	// options:[{key, value, correct}]}) with poll indexes starting at 1.
+	InsertPolls(ctx context.Context, arg InsertPollsParams) error
+	IsOptionCorrect(ctx context.Context, arg IsOptionCorrectParams) (bool, error)
+	ListMessagesAfter(ctx context.Context, arg ListMessagesAfterParams) ([]Message, error)
 	ListPolls(ctx context.Context, presentationid uuid.UUID) ([]ListPollsRow, error)
 	// Every vote of every poll in the presentation, with whether it was correct.
 	ListPresentationVotes(ctx context.Context, presentationID uuid.UUID) ([]ListPresentationVotesRow, error)
 	ListPresentationsByUser(ctx context.Context, arg ListPresentationsByUserParams) ([]ListPresentationsByUserRow, error)
-	RemovePlayerFromPresentation(ctx context.Context, arg RemovePlayerFromPresentationParams) error
+	// The newest messages, returned oldest first.
+	ListRecentMessages(ctx context.Context, arg ListRecentMessagesParams) ([]Message, error)
+	// Locks the poll row until the vote's transaction ends, so answers to one
+	// poll are handled strictly one after another: exactly one player can win.
+	LockPollForVote(ctx context.Context, arg LockPollForVoteParams) (LockPollForVoteRow, error)
+	MoveToNextPoll(ctx context.Context, id uuid.UUID) (sql.NullInt32, error)
+	// Never goes below poll 1, so a poll always stays on screen.
+	MoveToPreviousPoll(ctx context.Context, id uuid.UUID) (sql.NullInt32, error)
+	// Starts the countdown of the poll on screen, the first time it is shown.
+	OpenCurrentPoll(ctx context.Context, presentationID uuid.UUID) error
+	PlayerHasVoted(ctx context.Context, arg PlayerHasVotedParams) (bool, error)
+	PollHasCorrectOption(ctx context.Context, pollID uuid.UUID) (bool, error)
+	RemovePlayerFromPresentation(ctx context.Context, arg RemovePlayerFromPresentationParams) (int64, error)
+	RevealCurrentPoll(ctx context.Context, presentationID uuid.UUID) (uuid.UUID, error)
+	// Used when a revoked refresh token is presented again: the token may have
+	// been stolen, so every session of that user is ended.
+	RevokeAllUserSessions(ctx context.Context, userID uuid.UUID) error
+	RevokeSession(ctx context.Context, id uuid.UUID) error
+	// Records the winner and closes the poll. Matches nothing if someone already won.
+	SetPollWinner(ctx context.Context, arg SetPollWinnerParams) (SetPollWinnerRow, error)
 	// Closes player registration and displays the first poll, so a started
 	// presentation always has a poll on screen. GREATEST keeps the current poll
 	// if the owner already moved forward before starting.
 	// Returns no row if it was already started.
 	StartPresentation(ctx context.Context, presentationID uuid.UUID) (Presentation, error)
+	UpdatePresentationDetails(ctx context.Context, arg UpdatePresentationDetailsParams) error
 }
 
 var _ Querier = (*Queries)(nil)

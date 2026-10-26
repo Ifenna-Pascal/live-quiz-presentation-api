@@ -11,13 +11,22 @@ INSERT INTO users (
 SELECT * from users
 where email = $1 LIMIT 1;
 
+-- name: GetUserByID :one
+SELECT * from users
+where id = $1 LIMIT 1;
+
 -- name: ListPresentationsByUser :many
 SELECT
   p.id,
+  p.title,
   p.currentpollindex,
   p.hasstarted,
+  p.hasfinished,
   p.createdat,
-  (SELECT COUNT(*) FROM polls WHERE polls.presentationid = p.id)::INT AS poll_count
+  p.prizepool,
+  p.prizecurrency,
+  (SELECT COUNT(*) FROM polls WHERE polls.presentationid = p.id)::INT AS poll_count,
+  (SELECT COUNT(*) FROM players WHERE players.presentationid = p.id)::INT AS player_count
 FROM presentations p
 WHERE p.userId = sqlc.arg(user_id)
 ORDER BY p.createdat DESC, p.id

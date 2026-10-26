@@ -5,58 +5,74 @@ import (
 	"database/sql"
 	"errors"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/ifenna-pascal/interactive-presentation/internal/constant/model"
 	db "github.com/ifenna-pascal/interactive-presentation/internal/storage/persistence"
+	"github.com/ifenna-pascal/interactive-presentation/pkg/util"
+	"github.com/ifenna-pascal/interactive-presentation/platform/events"
 	"github.com/lib/pq"
 )
 
-// uniqueViolation is the Postgres error code for a broken UNIQUE constraint.
-const uniqueViolation = "23505"
+const (
+	uniqueViolation     = "23505"
+	maxPlayerNameLength = 30
+)
 
-// Usecase contains the function of business logic of domain player
 type Usecase interface {
-	RegisterPlayer(ctx context.Context, presentationID uuid.UUID, param model.RegisterPlayerToPresentation) (model.CreatedPresentationPlayerResponse, error)
+	RegisterPlayer(ctx context.Context, presentationID uuid.UUID, param model.RegisterPlayerToPresentation) (model.RegisteredPlayerResponse, error)
 	ListPlayers(ctx context.Context, presentationID uuid.UUID) ([]model.CreatedPresentationPlayerResponse, error)
 	StartPresentation(ctx context.Context, userID, presentationID uuid.UUID) error
+	RemovePlayer(ctx context.Context, userID, presentationID, playerID uuid.UUID) error
 }
 
 type service struct {
-	store db.Store
+	store     db.Store
+	publisher events.Publisher
 }
 
-// Initialize takes all necessary service for domain player to run the business logic of domain player
-func Initialize(store db.Store) Usecase {
-	return &service{store: store}
+func Initialize(store db.Store, publisher events.Publisher) Usecase {
+	return &service{store: store, publisher: publisher}
 }
 
-func (s service) RegisterPlayer(ctx context.Context, presentationID uuid.UUID, param model.RegisterPlayerToPresentation) (model.CreatedPresentationPlayerResponse, error) {
-	name := strings.TrimSpace(param.PlayerName)
+// RegisterPlayer adds a player while registration is open and returns the
+// player's secret token. Only its hash is stored.
+func (s service) RegisterPlayer(ctx context.Context, presentationID uuid.UUID, param model.RegisterPlayerToPresentation) (model.RegisteredPlayerResponse, error) {
+	name := strings.Join(strings.Fields(param.PlayerName), " ")
 	if name == "" {
-		return model.CreatedPresentationPlayerResponse{}, model.ErrInvalidPlayerName
+		return model.RegisteredPlayerResponse{}, model.ErrInvalidPlayerName
+	}
+	if utf8.RuneCountInString(name) > maxPlayerNameLength {
+		return model.RegisteredPlayerResponse{}, model.ValidationError{Message: "The `player_name` can be at most 30 characters."}
+	}
+
+	secret, hash, err := util.NewSecret()
+	if err != nil {
+		return model.RegisteredPlayerResponse{}, err
 	}
 
 	player, err := s.store.AddPlayerToPresentation(ctx, db.AddPlayerToPresentationParams{
 		PlayerName:     name,
+		SecretHash:     hash,
 		PresentationID: presentationID,
 	})
 	if err != nil {
-		// No row inserted: the presentation does not exist or has already started.
 		if errors.Is(err, sql.ErrNoRows) {
-			return model.CreatedPresentationPlayerResponse{}, model.ErrRegistrationClosed
+			return model.RegisteredPlayerResponse{}, model.ErrRegistrationClosed
 		}
-		// UNIQUE(presentationID, playerName): the name is already registered.
 		var pqErr *pq.Error
 		if errors.As(err, &pqErr) && pqErr.Code == uniqueViolation {
-			return model.CreatedPresentationPlayerResponse{}, model.ErrNameTaken
+			return model.RegisteredPlayerResponse{}, model.ErrNameTaken
 		}
-		return model.CreatedPresentationPlayerResponse{}, err
+		return model.RegisteredPlayerResponse{}, err
 	}
 
-	return model.CreatedPresentationPlayerResponse{
-		PlayerID:   player.ID.String(),
-		PlayerName: player.Playername,
+	s.publisher.Publish(ctx, presentationID, events.TypePlayers, nil)
+	return model.RegisteredPlayerResponse{
+		PlayerID:    player.ID.String(),
+		PlayerName:  player.Playername,
+		PlayerToken: secret,
 	}, nil
 }
 
@@ -86,17 +102,31 @@ func (s service) ListPlayers(ctx context.Context, presentationID uuid.UUID) ([]m
 }
 
 func (s service) StartPresentation(ctx context.Context, userID, presentationID uuid.UUID) error {
-	// Only the owner may start the presentation.
 	if _, err := s.store.GetOwnedPresentation(ctx, userID, presentationID); err != nil {
 		return err
 	}
-
-	// The presentation exists, so no row updated means it had already started.
-	if _, err := s.store.StartPresentation(ctx, presentationID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return model.ErrPresentationAlreadyStarted
-		}
+	if err := s.store.StartPresentationTx(ctx, presentationID); err != nil {
 		return err
 	}
+	s.publisher.Publish(ctx, presentationID, events.TypePresentation, nil)
+	return nil
+}
+
+// RemovePlayer deletes a player and their votes. Only the owner can do it.
+func (s service) RemovePlayer(ctx context.Context, userID, presentationID, playerID uuid.UUID) error {
+	if _, err := s.store.GetOwnedPresentation(ctx, userID, presentationID); err != nil {
+		return err
+	}
+	rows, err := s.store.RemovePlayerFromPresentation(ctx, db.RemovePlayerFromPresentationParams{
+		PlayerID:       playerID,
+		PresentationID: presentationID,
+	})
+	if err != nil {
+		return err
+	}
+	if rows == 0 {
+		return model.ErrNotFound
+	}
+	s.publisher.Publish(ctx, presentationID, events.TypePlayers, nil)
 	return nil
 }

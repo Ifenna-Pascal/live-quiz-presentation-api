@@ -9,110 +9,84 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"time"
 
 	"github.com/google/uuid"
 )
 
-const createPresentationAndPolls = `-- name: CreatePresentationAndPolls :one
-WITH presentations_cte AS (
+const createPresentation = `-- name: CreatePresentation :one
 INSERT INTO presentations
-  (id, currentpollindex, userId)
+  (currentpollindex, userId, title, prizePool, prizeCurrency)
 VALUES
-  (uuid_generate_v4(), 0, $1)
+  (0, $1, $2, $3, $4)
 RETURNING id
-),
-data_cte AS
-(
-  SELECT
-  to_jsonb($2
-::jsonb) AS data
-),
-polls_cte AS
-(
-INSERT INTO polls
-  (question, presentationid, pollindex)
-SELECT
-  (arr.elem ->> 'question')
-::TEXT AS question,
-    pc.id AS presentationid,
-    arr.idx AS pollindex
-  FROM presentations_cte pc, data_cte dc,
-    jsonb_array_elements
-(dc.data)
-WITH ORDINALITY AS arr
-(elem, idx)
-  RETURNING id, pollindex
-),
-options_cte AS
-(
-INSERT INTO options
-  (pollid, optionkey, optionvalue, iscorrect)
-SELECT
-  pc.id,
-  (o ->> 'key')
-::TEXT AS optionkey,
-(o ->> 'value')::TEXT AS optionvalue,
-COALESCE((o ->> 'correct')::BOOLEAN, FALSE) AS iscorrect
-  FROM polls_cte pc, data_cte dc,
-    LATERAL jsonb_array_elements
-(dc.data -> pc.pollindex - 1 -> 'options') AS o
-  RETURNING id,pollid
-)
-
-SELECT id
-FROM presentations_cte
 `
 
-type CreatePresentationAndPollsParams struct {
-	UserID uuid.NullUUID   `db:"user_id" json:"user_id"`
-	Polls  json.RawMessage `db:"polls" json:"polls"`
+type CreatePresentationParams struct {
+	UserID        uuid.NullUUID `db:"user_id" json:"user_id"`
+	Title         string        `db:"title" json:"title"`
+	PrizePool     sql.NullInt64 `db:"prize_pool" json:"prize_pool"`
+	PrizeCurrency string        `db:"prize_currency" json:"prize_currency"`
 }
 
-func (q *Queries) CreatePresentationAndPolls(ctx context.Context, arg CreatePresentationAndPollsParams) (uuid.UUID, error) {
-	row := q.db.QueryRowContext(ctx, createPresentationAndPolls, arg.UserID, arg.Polls)
+// Poll 0 is "nothing on screen yet". Starting moves to poll 1.
+func (q *Queries) CreatePresentation(ctx context.Context, arg CreatePresentationParams) (uuid.UUID, error) {
+	row := q.db.QueryRowContext(ctx, createPresentation,
+		arg.UserID,
+		arg.Title,
+		arg.PrizePool,
+		arg.PrizeCurrency,
+	)
 	var id uuid.UUID
 	err := row.Scan(&id)
 	return id, err
 }
 
-const getNextPoll = `-- name: GetNextPoll :one
-WITH updated_polls_cte AS(
-UPDATE presentations
-	SET currentpollindex = currentpollindex + 1
-	WHERE presentations.id = $1 AND currentpollindex + 1 <= (
-    SELECT count(*)
-  FROM polls
-  WHERE presentationid = $1
-  )
-RETURNING id, currentpollindex
-)
-SELECT
-  p.id AS id,
-  p.question AS question,
-  (
-    SELECT jsonb_agg(jsonb_build_object(
-      'key', o.optionkey,
-      'value', o.optionvalue
-    )) AS options
-  FROM options o
-    INNER JOIN polls p ON o.pollid = p.id
-  WHERE p.presentationid = upc.id AND p.pollindex=upc.currentpollindex
-  ) AS options
-FROM polls p
-  INNER JOIN updated_polls_cte upc ON p.presentationid = upc.id AND p.pollindex=upc.currentpollindex
-WHERE upc.id IS NOT NULL
+const deletePolls = `-- name: DeletePolls :exec
+DELETE FROM polls WHERE presentationid = $1
 `
 
-type GetNextPollRow struct {
-	ID       uuid.UUID       `db:"id" json:"id"`
-	Question string          `db:"question" json:"question"`
-	Options  json.RawMessage `db:"options" json:"options"`
+func (q *Queries) DeletePolls(ctx context.Context, presentationID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, deletePolls, presentationID)
+	return err
 }
 
-func (q *Queries) GetNextPoll(ctx context.Context, id uuid.UUID) (GetNextPollRow, error) {
-	row := q.db.QueryRowContext(ctx, getNextPoll, id)
-	var i GetNextPollRow
-	err := row.Scan(&i.ID, &i.Question, &i.Options)
+const deletePresentation = `-- name: DeletePresentation :execrows
+DELETE FROM presentations WHERE id = $1
+`
+
+func (q *Queries) DeletePresentation(ctx context.Context, presentationID uuid.UUID) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deletePresentation, presentationID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const finishPresentation = `-- name: FinishPresentation :one
+UPDATE presentations
+SET hasFinished = TRUE
+WHERE id = $1
+  AND hasStarted = TRUE
+  AND hasFinished = FALSE
+RETURNING id, currentpollindex, userid, hasstarted, createdat, title, hasfinished, prizepool, prizecurrency
+`
+
+// Returns no row unless the presentation is running.
+func (q *Queries) FinishPresentation(ctx context.Context, presentationID uuid.UUID) (Presentation, error) {
+	row := q.db.QueryRowContext(ctx, finishPresentation, presentationID)
+	var i Presentation
+	err := row.Scan(
+		&i.ID,
+		&i.Currentpollindex,
+		&i.Userid,
+		&i.Hasstarted,
+		&i.Createdat,
+		&i.Title,
+		&i.Hasfinished,
+		&i.Prizepool,
+		&i.Prizecurrency,
+	)
 	return i, err
 }
 
@@ -120,35 +94,75 @@ const getPoll = `-- name: GetPoll :one
 SELECT
   p.id AS id,
   p.question AS question,
+  p.pollindex,
+  p.isrevealed,
+  p.timelimitseconds,
+  p.openedat,
+  p.wonat,
+  p.winnerplayerid,
+  w.playername AS winner_name,
+  COALESCE((
+    SELECT v.optionkey FROM votes v
+    WHERE v.pollid = p.id AND v.playerid = p.winnerplayerid
+    ORDER BY v.createdat DESC LIMIT 1
+  ), '')::TEXT AS winner_key,
+  pr.hasfinished,
+  clock_timestamp()::timestamptz AS server_time,
   (
     SELECT jsonb_agg(jsonb_build_object(
       'key', o.optionkey,
-      'value', o.optionvalue
-    )) AS options
+      'value', o.optionvalue,
+      'correct', o.iscorrect
+    ) ORDER BY o.optionkey)
   FROM options o
   WHERE o.pollid = p.id
-  ) AS options
+  )::jsonb AS options
 FROM polls p
-WHERE p.presentationid = $1 and p.pollindex=(SELECT currentpollindex
-  FROM presentations
-  WHERE id=$1)
+  JOIN presentations pr ON pr.id = p.presentationid
+  LEFT JOIN players w ON w.id = p.winnerplayerid
+WHERE p.presentationid = $1 and p.pollindex = pr.currentpollindex
 `
 
 type GetPollRow struct {
-	ID       uuid.UUID       `db:"id" json:"id"`
-	Question string          `db:"question" json:"question"`
-	Options  json.RawMessage `db:"options" json:"options"`
+	ID               uuid.UUID       `db:"id" json:"id"`
+	Question         string          `db:"question" json:"question"`
+	Pollindex        int32           `db:"pollindex" json:"pollindex"`
+	Isrevealed       bool            `db:"isrevealed" json:"isrevealed"`
+	Timelimitseconds int32           `db:"timelimitseconds" json:"timelimitseconds"`
+	Openedat         sql.NullTime    `db:"openedat" json:"openedat"`
+	Wonat            sql.NullTime    `db:"wonat" json:"wonat"`
+	Winnerplayerid   uuid.NullUUID   `db:"winnerplayerid" json:"winnerplayerid"`
+	WinnerName       sql.NullString  `db:"winner_name" json:"winner_name"`
+	WinnerKey        string          `db:"winner_key" json:"winner_key"`
+	Hasfinished      bool            `db:"hasfinished" json:"hasfinished"`
+	ServerTime       time.Time       `db:"server_time" json:"server_time"`
+	Options          json.RawMessage `db:"options" json:"options"`
 }
 
+// The poll currently on screen, with its timer and winner.
 func (q *Queries) GetPoll(ctx context.Context, presentationid uuid.UUID) (GetPollRow, error) {
 	row := q.db.QueryRowContext(ctx, getPoll, presentationid)
 	var i GetPollRow
-	err := row.Scan(&i.ID, &i.Question, &i.Options)
+	err := row.Scan(
+		&i.ID,
+		&i.Question,
+		&i.Pollindex,
+		&i.Isrevealed,
+		&i.Timelimitseconds,
+		&i.Openedat,
+		&i.Wonat,
+		&i.Winnerplayerid,
+		&i.WinnerName,
+		&i.WinnerKey,
+		&i.Hasfinished,
+		&i.ServerTime,
+		&i.Options,
+	)
 	return i, err
 }
 
 const getPresentation = `-- name: GetPresentation :one
-SELECT id, currentpollindex, userid, hasstarted, createdat
+SELECT id, currentpollindex, userid, hasstarted, createdat, title, hasfinished, prizepool, prizecurrency
 FROM presentations
 WHERE id = $1
 `
@@ -162,21 +176,27 @@ func (q *Queries) GetPresentation(ctx context.Context, id uuid.UUID) (Presentati
 		&i.Userid,
 		&i.Hasstarted,
 		&i.Createdat,
+		&i.Title,
+		&i.Hasfinished,
+		&i.Prizepool,
+		&i.Prizecurrency,
 	)
 	return i, err
 }
 
 const getPresentationAndPoll = `-- name: GetPresentationAndPoll :one
-SELECT 
+SELECT
   pr.id as presentation_id,
   pr.currentpollindex,
   pr.userId,
+  pr.hasfinished,
   pl.id as poll_id,
   pl.question as question,
-  pl.pollindex
+  pl.pollindex,
+  pl.isrevealed
 FROM
   presentations as pr JOIN polls as pl ON pr.id=pl.presentationid
-WHERE 
+WHERE
   pr.id=$1 AND pl.id=$2
 `
 
@@ -189,9 +209,11 @@ type GetPresentationAndPollRow struct {
 	PresentationID   uuid.UUID     `db:"presentation_id" json:"presentation_id"`
 	Currentpollindex sql.NullInt32 `db:"currentpollindex" json:"currentpollindex"`
 	Userid           uuid.NullUUID `db:"userid" json:"userid"`
+	Hasfinished      bool          `db:"hasfinished" json:"hasfinished"`
 	PollID           uuid.UUID     `db:"poll_id" json:"poll_id"`
 	Question         string        `db:"question" json:"question"`
 	Pollindex        int32         `db:"pollindex" json:"pollindex"`
+	Isrevealed       bool          `db:"isrevealed" json:"isrevealed"`
 }
 
 func (q *Queries) GetPresentationAndPoll(ctx context.Context, arg GetPresentationAndPollParams) (GetPresentationAndPollRow, error) {
@@ -201,58 +223,80 @@ func (q *Queries) GetPresentationAndPoll(ctx context.Context, arg GetPresentatio
 		&i.PresentationID,
 		&i.Currentpollindex,
 		&i.Userid,
+		&i.Hasfinished,
 		&i.PollID,
 		&i.Question,
 		&i.Pollindex,
+		&i.Isrevealed,
 	)
 	return i, err
 }
 
-const getPreviousPoll = `-- name: GetPreviousPoll :one
-WITH updated_polls_cte AS(
-UPDATE presentations
-	SET currentpollindex = currentpollindex - 1
-	WHERE presentations.id = $1 AND currentpollindex - 1 >=0
-RETURNING id, currentpollindex
+const insertPolls = `-- name: InsertPolls :exec
+WITH data_cte AS (
+  SELECT $1::jsonb AS data
+),
+polls_cte AS (
+  INSERT INTO polls (question, presentationid, pollindex, timelimitseconds)
+  SELECT
+    (arr.elem ->> 'question')::TEXT,
+    $2::uuid,
+    arr.idx,
+    COALESCE(NULLIF((arr.elem ->> 'time_limit_seconds')::INT, 0), 20)
+  FROM data_cte dc, jsonb_array_elements(dc.data) WITH ORDINALITY AS arr(elem, idx)
+  RETURNING id, pollindex
 )
+INSERT INTO options (pollid, optionkey, optionvalue, iscorrect)
 SELECT
-  p.id AS id,
-  p.question AS question,
-  (
-    SELECT jsonb_agg(jsonb_build_object(
-      'key', o.optionkey,
-      'value', o.optionvalue
-    )) AS options
-  FROM options o
-    INNER JOIN polls p ON o.pollid = p.id
-  WHERE p.presentationid = upc.id AND p.pollindex=upc.currentpollindex
-  ) AS options
-FROM polls p
-  INNER JOIN updated_polls_cte upc ON p.presentationid = upc.id AND p.pollindex=upc.currentpollindex
-WHERE upc.id IS NOT NULL
+  pc.id,
+  (o ->> 'key')::TEXT,
+  (o ->> 'value')::TEXT,
+  COALESCE((o ->> 'correct')::BOOLEAN, FALSE)
+FROM polls_cte pc, data_cte dc,
+  LATERAL jsonb_array_elements(dc.data -> (pc.pollindex - 1)::INT -> 'options') AS o
 `
 
-type GetPreviousPollRow struct {
-	ID       uuid.UUID       `db:"id" json:"id"`
-	Question string          `db:"question" json:"question"`
-	Options  json.RawMessage `db:"options" json:"options"`
+type InsertPollsParams struct {
+	Polls          json.RawMessage `db:"polls" json:"polls"`
+	PresentationID uuid.UUID       `db:"presentation_id" json:"presentation_id"`
 }
 
-func (q *Queries) GetPreviousPoll(ctx context.Context, id uuid.UUID) (GetPreviousPollRow, error) {
-	row := q.db.QueryRowContext(ctx, getPreviousPoll, id)
-	var i GetPreviousPollRow
-	err := row.Scan(&i.ID, &i.Question, &i.Options)
-	return i, err
+// Inserts every poll of `polls` (a JSON array of {question, time_limit_seconds,
+// options:[{key, value, correct}]}) with poll indexes starting at 1.
+func (q *Queries) InsertPolls(ctx context.Context, arg InsertPollsParams) error {
+	_, err := q.db.ExecContext(ctx, insertPolls, arg.Polls, arg.PresentationID)
+	return err
+}
+
+const isOptionCorrect = `-- name: IsOptionCorrect :one
+SELECT iscorrect FROM options
+WHERE pollid = $1 AND optionkey = $2
+`
+
+type IsOptionCorrectParams struct {
+	PollID    uuid.UUID `db:"poll_id" json:"poll_id"`
+	OptionKey string    `db:"option_key" json:"option_key"`
+}
+
+func (q *Queries) IsOptionCorrect(ctx context.Context, arg IsOptionCorrectParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, isOptionCorrect, arg.PollID, arg.OptionKey)
+	var iscorrect bool
+	err := row.Scan(&iscorrect)
+	return iscorrect, err
 }
 
 const listPolls = `-- name: ListPolls :many
 SELECT
   p.id AS id,
   p.question,
+  p.isrevealed,
+  p.timelimitseconds,
+  p.winnerplayerid,
   jsonb_agg(jsonb_build_object(
         'key', o.optionKey,
-        'value', o.optionValue
-    )) AS options
+        'value', o.optionValue,
+        'correct', o.isCorrect
+    ) ORDER BY o.optionKey)::jsonb AS options
 FROM
   polls p
   JOIN
@@ -260,15 +304,18 @@ FROM
 WHERE
     p.presentationID = $1
 GROUP BY
-    p.id, p.question, p.pollindex, p.createdAt
+    p.id, p.question, p.isrevealed, p.timelimitseconds, p.winnerplayerid, p.pollindex, p.createdAt
 ORDER BY
     p.pollindex
 `
 
 type ListPollsRow struct {
-	ID       uuid.UUID       `db:"id" json:"id"`
-	Question string          `db:"question" json:"question"`
-	Options  json.RawMessage `db:"options" json:"options"`
+	ID               uuid.UUID       `db:"id" json:"id"`
+	Question         string          `db:"question" json:"question"`
+	Isrevealed       bool            `db:"isrevealed" json:"isrevealed"`
+	Timelimitseconds int32           `db:"timelimitseconds" json:"timelimitseconds"`
+	Winnerplayerid   uuid.NullUUID   `db:"winnerplayerid" json:"winnerplayerid"`
+	Options          json.RawMessage `db:"options" json:"options"`
 }
 
 func (q *Queries) ListPolls(ctx context.Context, presentationid uuid.UUID) ([]ListPollsRow, error) {
@@ -280,7 +327,14 @@ func (q *Queries) ListPolls(ctx context.Context, presentationid uuid.UUID) ([]Li
 	items := []ListPollsRow{}
 	for rows.Next() {
 		var i ListPollsRow
-		if err := rows.Scan(&i.ID, &i.Question, &i.Options); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.Question,
+			&i.Isrevealed,
+			&i.Timelimitseconds,
+			&i.Winnerplayerid,
+			&i.Options,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -294,13 +348,174 @@ func (q *Queries) ListPolls(ctx context.Context, presentationid uuid.UUID) ([]Li
 	return items, nil
 }
 
+const lockPollForVote = `-- name: LockPollForVote :one
+SELECT
+  pr.currentpollindex,
+  pr.hasfinished,
+  pl.pollindex,
+  pl.isrevealed,
+  pl.winnerplayerid,
+  pl.openedat,
+  pl.timelimitseconds,
+  clock_timestamp()::timestamptz AS now
+FROM polls pl
+  JOIN presentations pr ON pr.id = pl.presentationid
+WHERE pr.id = $1 AND pl.id = $2
+FOR UPDATE OF pl
+`
+
+type LockPollForVoteParams struct {
+	PresentationID uuid.UUID `db:"presentation_id" json:"presentation_id"`
+	PollID         uuid.UUID `db:"poll_id" json:"poll_id"`
+}
+
+type LockPollForVoteRow struct {
+	Currentpollindex sql.NullInt32 `db:"currentpollindex" json:"currentpollindex"`
+	Hasfinished      bool          `db:"hasfinished" json:"hasfinished"`
+	Pollindex        int32         `db:"pollindex" json:"pollindex"`
+	Isrevealed       bool          `db:"isrevealed" json:"isrevealed"`
+	Winnerplayerid   uuid.NullUUID `db:"winnerplayerid" json:"winnerplayerid"`
+	Openedat         sql.NullTime  `db:"openedat" json:"openedat"`
+	Timelimitseconds int32         `db:"timelimitseconds" json:"timelimitseconds"`
+	Now              time.Time     `db:"now" json:"now"`
+}
+
+// Locks the poll row until the vote's transaction ends, so answers to one
+// poll are handled strictly one after another: exactly one player can win.
+func (q *Queries) LockPollForVote(ctx context.Context, arg LockPollForVoteParams) (LockPollForVoteRow, error) {
+	row := q.db.QueryRowContext(ctx, lockPollForVote, arg.PresentationID, arg.PollID)
+	var i LockPollForVoteRow
+	err := row.Scan(
+		&i.Currentpollindex,
+		&i.Hasfinished,
+		&i.Pollindex,
+		&i.Isrevealed,
+		&i.Winnerplayerid,
+		&i.Openedat,
+		&i.Timelimitseconds,
+		&i.Now,
+	)
+	return i, err
+}
+
+const moveToNextPoll = `-- name: MoveToNextPoll :one
+UPDATE presentations
+SET currentpollindex = currentpollindex + 1
+WHERE presentations.id = $1
+  AND currentpollindex + 1 <= (SELECT count(*) FROM polls WHERE polls.presentationid = $1)
+RETURNING currentpollindex
+`
+
+func (q *Queries) MoveToNextPoll(ctx context.Context, id uuid.UUID) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, moveToNextPoll, id)
+	var currentpollindex sql.NullInt32
+	err := row.Scan(&currentpollindex)
+	return currentpollindex, err
+}
+
+const moveToPreviousPoll = `-- name: MoveToPreviousPoll :one
+UPDATE presentations
+SET currentpollindex = currentpollindex - 1
+WHERE presentations.id = $1 AND currentpollindex - 1 >= 1
+RETURNING currentpollindex
+`
+
+// Never goes below poll 1, so a poll always stays on screen.
+func (q *Queries) MoveToPreviousPoll(ctx context.Context, id uuid.UUID) (sql.NullInt32, error) {
+	row := q.db.QueryRowContext(ctx, moveToPreviousPoll, id)
+	var currentpollindex sql.NullInt32
+	err := row.Scan(&currentpollindex)
+	return currentpollindex, err
+}
+
+const openCurrentPoll = `-- name: OpenCurrentPoll :exec
+UPDATE polls
+SET openedAt = clock_timestamp()
+WHERE presentationid = $1
+  AND openedAt IS NULL
+  AND pollindex = (SELECT pr.currentpollindex FROM presentations pr WHERE pr.id = $1)
+`
+
+// Starts the countdown of the poll on screen, the first time it is shown.
+func (q *Queries) OpenCurrentPoll(ctx context.Context, presentationID uuid.UUID) error {
+	_, err := q.db.ExecContext(ctx, openCurrentPoll, presentationID)
+	return err
+}
+
+const playerHasVoted = `-- name: PlayerHasVoted :one
+SELECT EXISTS (SELECT 1 FROM votes WHERE pollid = $1 AND playerid = $2)
+`
+
+type PlayerHasVotedParams struct {
+	PollID   uuid.UUID `db:"poll_id" json:"poll_id"`
+	PlayerID uuid.UUID `db:"player_id" json:"player_id"`
+}
+
+func (q *Queries) PlayerHasVoted(ctx context.Context, arg PlayerHasVotedParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, playerHasVoted, arg.PollID, arg.PlayerID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const pollHasCorrectOption = `-- name: PollHasCorrectOption :one
+SELECT EXISTS (SELECT 1 FROM options WHERE pollid = $1 AND iscorrect)
+`
+
+func (q *Queries) PollHasCorrectOption(ctx context.Context, pollID uuid.UUID) (bool, error) {
+	row := q.db.QueryRowContext(ctx, pollHasCorrectOption, pollID)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const revealCurrentPoll = `-- name: RevealCurrentPoll :one
+UPDATE polls
+SET isRevealed = TRUE
+WHERE presentationid = $1
+  AND pollindex = (SELECT pr.currentpollindex FROM presentations pr WHERE pr.id = $1)
+RETURNING id
+`
+
+func (q *Queries) RevealCurrentPoll(ctx context.Context, presentationID uuid.UUID) (uuid.UUID, error) {
+	row := q.db.QueryRowContext(ctx, revealCurrentPoll, presentationID)
+	var id uuid.UUID
+	err := row.Scan(&id)
+	return id, err
+}
+
+const setPollWinner = `-- name: SetPollWinner :one
+UPDATE polls
+SET winnerPlayerID = $1, wonAt = clock_timestamp(), isRevealed = TRUE
+WHERE id = $2 AND winnerPlayerID IS NULL
+RETURNING wonat, openedat
+`
+
+type SetPollWinnerParams struct {
+	PlayerID uuid.NullUUID `db:"player_id" json:"player_id"`
+	PollID   uuid.UUID     `db:"poll_id" json:"poll_id"`
+}
+
+type SetPollWinnerRow struct {
+	Wonat    sql.NullTime `db:"wonat" json:"wonat"`
+	Openedat sql.NullTime `db:"openedat" json:"openedat"`
+}
+
+// Records the winner and closes the poll. Matches nothing if someone already won.
+func (q *Queries) SetPollWinner(ctx context.Context, arg SetPollWinnerParams) (SetPollWinnerRow, error) {
+	row := q.db.QueryRowContext(ctx, setPollWinner, arg.PlayerID, arg.PollID)
+	var i SetPollWinnerRow
+	err := row.Scan(&i.Wonat, &i.Openedat)
+	return i, err
+}
+
 const startPresentation = `-- name: StartPresentation :one
 UPDATE presentations
 SET hasStarted = TRUE,
   currentpollindex = GREATEST(currentpollindex, 1)
 WHERE id = $1
   AND hasStarted = FALSE
-RETURNING id, currentpollindex, userid, hasstarted, createdat
+RETURNING id, currentpollindex, userid, hasstarted, createdat, title, hasfinished, prizepool, prizecurrency
 `
 
 // Closes player registration and displays the first poll, so a started
@@ -316,6 +531,35 @@ func (q *Queries) StartPresentation(ctx context.Context, presentationID uuid.UUI
 		&i.Userid,
 		&i.Hasstarted,
 		&i.Createdat,
+		&i.Title,
+		&i.Hasfinished,
+		&i.Prizepool,
+		&i.Prizecurrency,
 	)
 	return i, err
+}
+
+const updatePresentationDetails = `-- name: UpdatePresentationDetails :exec
+UPDATE presentations
+SET title = $1,
+  prizePool = $2,
+  prizeCurrency = $3
+WHERE id = $4
+`
+
+type UpdatePresentationDetailsParams struct {
+	Title          string        `db:"title" json:"title"`
+	PrizePool      sql.NullInt64 `db:"prize_pool" json:"prize_pool"`
+	PrizeCurrency  string        `db:"prize_currency" json:"prize_currency"`
+	PresentationID uuid.UUID     `db:"presentation_id" json:"presentation_id"`
+}
+
+func (q *Queries) UpdatePresentationDetails(ctx context.Context, arg UpdatePresentationDetailsParams) error {
+	_, err := q.db.ExecContext(ctx, updatePresentationDetails,
+		arg.Title,
+		arg.PrizePool,
+		arg.PrizeCurrency,
+		arg.PresentationID,
+	)
+	return err
 }

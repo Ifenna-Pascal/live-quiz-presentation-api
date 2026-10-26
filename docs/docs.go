@@ -44,7 +44,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Creates a presentation owned by the logged-in user, together with its polls and their options. No poll is displayed yet: ` + "`" + `current_poll_index` + "`" + ` starts at 0 until the first ` + "`" + `PUT .../polls/current` + "`" + `.",
+                "description": "1-50 polls, each with a question and 2-6 options with unique keys. Mark right answers with ` + "`" + `correct: true` + "`" + `.",
                 "consumes": [
                     "application/json"
                 ],
@@ -57,7 +57,7 @@ const docTemplate = `{
                 "summary": "Create a presentation",
                 "parameters": [
                     {
-                        "description": "The polls of the presentation, in display order",
+                        "description": "Title and polls",
                         "name": "presentation",
                         "in": "body",
                         "required": true,
@@ -74,9 +74,9 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Body is missing mandatory fields, has a wrong type, or contains no polls",
+                        "description": "Invalid body or rule broken",
                         "schema": {
-                            "type": "string"
+                            "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "401": {
@@ -90,13 +90,19 @@ const docTemplate = `{
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
                     }
                 }
             }
         },
         "/presentations/{presentation_id}": {
             "get": {
-                "description": "Returns the index of the poll currently displayed, whether the presentation has started (` + "`" + `has_started` + "`" + ` is false while players can still register), and all polls of the presentation. Correct answers are never included.",
+                "description": "Public. With the owner's access token the options include ` + "`" + `correct` + "`" + ` and ` + "`" + `is_owner` + "`" + ` is true; otherwise answers are only shown for revealed polls.",
                 "produces": [
                     "application/json"
                 ],
@@ -118,26 +124,155 @@ const docTemplate = `{
                     "200": {
                         "description": "OK",
                         "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/model.PresentionResponseDTO"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "polls": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/model.Poll"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
+                            "$ref": "#/definitions/model.PresentionResponseDTO"
                         }
                     },
                     "400": {
-                        "description": "` + "`" + `presentation_id` + "`" + ` is not a valid UUID",
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "An Authorization header was sent but is invalid",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Replaces the title and every poll. Only before the presentation starts. Owner only.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Edit a presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Title and polls",
+                        "name": "presentation",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreatePresentionRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Saved"
+                    },
+                    "400": {
+                        "description": "Invalid id, body or rule broken",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Already started",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the presentation with its polls, players, votes and chat. Owner only.",
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Delete a presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Deleted"
+                    },
+                    "400": {
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -157,14 +292,113 @@ const docTemplate = `{
                 }
             }
         },
-        "/presentations/{presentation_id}/leaderboard": {
+        "/presentations/{presentation_id}/events": {
             "get": {
+                "description": "Open with the browser's EventSource. Event names: ` + "`" + `ready` + "`" + `, ` + "`" + `presentation` + "`" + `, ` + "`" + `players` + "`" + `, ` + "`" + `vote` + "`" + ` (data: {\"poll_id\"}), ` + "`" + `chat` + "`" + ` (data: a MessageResponse), ` + "`" + `deleted` + "`" + `, ` + "`" + `resync` + "`" + `. Except for chat, an event means \"fetch this again\".",
+                "produces": [
+                    "text/event-stream"
+                ],
+                "tags": [
+                    "realtime"
+                ],
+                "summary": "Stream live updates (Server-Sent Events)",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "An endless event stream"
+                    },
+                    "400": {
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/finish": {
+            "post": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "Ranks every registered player by the number of polls answered correctly (one point per correct vote). Polls without a correct option are not scored. Players with the same score share a rank. Only the owner of the presentation can do this.",
+                "description": "Owner only. Closes voting and counts every shown poll on the leaderboard.",
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Finish the presentation",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Finished"
+                    },
+                    "400": {
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Not started, or already finished",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/leaderboard": {
+            "get": {
+                "description": "Public. One point per correct answer; a poll only counts once it is revealed (or the presentation has finished). Ties share a rank.",
                 "produces": [
                     "application/json"
                 ],
@@ -190,19 +424,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `",
-                        "schema": {
-                            "$ref": "#/definitions/model.ErrorResponse"
-                        }
-                    },
-                    "401": {
-                        "description": "Missing, invalid or expired access token",
-                        "schema": {
-                            "$ref": "#/definitions/model.ErrorResponse"
-                        }
-                    },
-                    "403": {
-                        "description": "The logged-in user does not own the presentation",
+                        "description": "Invalid id",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -222,16 +444,167 @@ const docTemplate = `{
                 }
             }
         },
+        "/presentations/{presentation_id}/messages": {
+            "get": {
+                "description": "Oldest first. Without ` + "`" + `after` + "`" + `: the newest ` + "`" + `limit` + "`" + ` messages. With ` + "`" + `after` + "`" + ` (RFC 3339): the messages sent after that time.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "List chat messages",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "format": "date-time",
+                        "description": "Only messages after this time",
+                        "name": "after",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 100,
+                        "description": "Max messages (1-200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/model.MessageResponse"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid id, ` + "`" + `after` + "`" + ` or ` + "`" + `limit` + "`" + `",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Players send ` + "`" + `player_id` + "`" + ` and ` + "`" + `player_token` + "`" + `. The host sends neither and authenticates with the access token.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "chat"
+                ],
+                "summary": "Send a chat message",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "The message (1-500 characters)",
+                        "name": "message",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.CreateMessageRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/model.MessageResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid id or body, or empty / too long message",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Authorization header sent but invalid",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Wrong player id or token, or not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/presentations/{presentation_id}/players": {
             "get": {
-                "description": "Returns every player registered in the presentation, in the order they registered.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
                     "players"
                 ],
-                "summary": "List the players of a presentation",
+                "summary": "List players",
                 "parameters": [
                     {
                         "type": "string",
@@ -253,7 +626,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `",
+                        "description": "Invalid id",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -273,7 +646,7 @@ const docTemplate = `{
                 }
             },
             "post": {
-                "description": "Registers a player in a presentation. Registration is only open until the presentation starts, and a name can be used only once per presentation.",
+                "description": "Registers a player while the presentation has not started. The response contains ` + "`" + `player_token` + "`" + `, a secret the player must send to vote and chat. It is shown only once.",
                 "consumes": [
                     "application/json"
                 ],
@@ -283,7 +656,7 @@ const docTemplate = `{
                 "tags": [
                     "players"
                 ],
-                "summary": "Register a player",
+                "summary": "Join a presentation",
                 "parameters": [
                     {
                         "type": "string",
@@ -307,23 +680,96 @@ const docTemplate = `{
                     "201": {
                         "description": "Created",
                         "schema": {
-                            "$ref": "#/definitions/model.CreatedPresentationPlayerResponse"
+                            "$ref": "#/definitions/model.RegisteredPlayerResponse"
                         }
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `, invalid body, or empty ` + "`" + `player_name` + "`" + `",
+                        "description": "Invalid id, body, or name",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "409": {
-                        "description": "Presentation not found or already started, or ` + "`" + `player_name` + "`" + ` already taken",
+                        "description": "Name taken, or presentation missing or already started",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "415": {
                         "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/players/{player_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Deletes the player, their votes and their chat messages. Owner only.",
+                "tags": [
+                    "players"
+                ],
+                "summary": "Remove a player",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Player ID",
+                        "name": "player_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Removed"
+                    },
+                    "400": {
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation or player not found",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -339,14 +785,14 @@ const docTemplate = `{
         },
         "/presentations/{presentation_id}/polls/current": {
             "get": {
-                "description": "Returns the poll that is currently displayed.",
+                "description": "Public. ` + "`" + `correct` + "`" + ` flags appear once the poll is revealed.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "polls"
+                    "presentations"
                 ],
-                "summary": "Get the current poll",
+                "summary": "Get the poll on screen",
                 "parameters": [
                     {
                         "type": "string",
@@ -365,7 +811,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "No poll is currently displayed. (An invalid ` + "`" + `presentation_id` + "`" + ` also gives 400, with a plain JSON string as body.)",
+                        "description": "Invalid id, or no poll on screen yet",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -390,14 +836,14 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Moves the presentation forward by one poll and returns the poll that is now displayed. Only the owner of the presentation can do this.",
+                "description": "Owner only. Returns the new poll, with correct answers.",
                 "produces": [
                     "application/json"
                 ],
                 "tags": [
-                    "polls"
+                    "presentations"
                 ],
-                "summary": "Display the next poll",
+                "summary": "Show the next poll",
                 "parameters": [
                     {
                         "type": "string",
@@ -416,7 +862,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "` + "`" + `presentation_id` + "`" + ` is not a valid UUID, or the presentation ran out of polls",
+                        "description": "Invalid id, or no more polls",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -428,7 +874,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "The logged-in user does not own the presentation",
+                        "description": "Not the owner",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -448,9 +894,80 @@ const docTemplate = `{
                 }
             }
         },
+        "/presentations/{presentation_id}/polls/current/reveal": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owner only. Closes voting on the poll, shows its correct answer to everyone and adds it to the leaderboard.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Reveal the answer of the poll on screen",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CurrentPoll"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid id, or no poll on screen",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "409": {
+                        "description": "Not started",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/presentations/{presentation_id}/polls/current/votes": {
             "post": {
-                "description": "Records one vote of a registered player for an option of the poll currently displayed. ` + "`" + `poll_id` + "`" + ` must be the ID of that poll, and the presentation must have started.",
+                "description": "The player proves who they are with the ` + "`" + `player_token` + "`" + ` they got at registration.\nTimed: answers are accepted until ` + "`" + `closes_at` + "`" + `. The first correct answer wins the poll and closes it; answers are handled one at a time, so exactly one player can win.\nOn scored polls a wrong answer can be followed by another option (each option once). On opinion polls each player answers once.",
                 "consumes": [
                     "application/json"
                 ],
@@ -460,7 +977,7 @@ const docTemplate = `{
                 "tags": [
                     "votes"
                 ],
-                "summary": "Vote on the current poll",
+                "summary": "Answer the poll on screen",
                 "parameters": [
                     {
                         "type": "string",
@@ -481,17 +998,20 @@ const docTemplate = `{
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "Vote recorded"
+                    "200": {
+                        "description": "Answer recorded: correct or not, and whether it won the poll",
+                        "schema": {
+                            "$ref": "#/definitions/model.VoteResult"
+                        }
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `, invalid body, ` + "`" + `poll_id` + "`" + ` is not the current poll, no poll displayed yet, or unknown option key",
+                        "description": "Invalid id or body, not the poll on screen, no poll on screen, or unknown option",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "403": {
-                        "description": "` + "`" + `player_id` + "`" + ` is not registered in this presentation, or the presentation has not started",
+                        "description": "Player not registered, wrong player token, or not started",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -503,7 +1023,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "The player already voted on this poll",
+                        "description": "Option already tried, someone already won, time is up, or voting closed",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -514,8 +1034,79 @@ const docTemplate = `{
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
+                    "429": {
+                        "description": "Too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
                     "500": {
-                        "description": "Any other failure",
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/presentations/{presentation_id}/polls/previous": {
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Owner only. Never goes before poll 1.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "presentations"
+                ],
+                "summary": "Show the previous poll",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "format": "uuid",
+                        "description": "Presentation ID",
+                        "name": "presentation_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.CurrentPoll"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid id, or already on the first poll",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Missing, invalid or expired access token",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "403": {
+                        "description": "Not the owner",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Presentation not found",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -525,7 +1116,6 @@ const docTemplate = `{
         },
         "/presentations/{presentation_id}/polls/{poll_id}/votes": {
             "get": {
-                "description": "Returns every vote cast on the given poll, ordered by option key. Any poll of the presentation can be read, including past ones.",
                 "produces": [
                     "application/json"
                 ],
@@ -562,7 +1152,10 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "An invalid UUID in the path (empty body)"
+                        "description": "Invalid id",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
                     },
                     "404": {
                         "description": "Presentation or poll not found",
@@ -586,14 +1179,11 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Starts the presentation: closes player registration, opens voting and displays the first poll. Only the owner of the presentation can do this.",
-                "produces": [
-                    "application/json"
-                ],
+                "description": "Closes registration and shows the first poll. Owner only.",
                 "tags": [
                     "players"
                 ],
-                "summary": "Start a presentation",
+                "summary": "Start the presentation",
                 "parameters": [
                     {
                         "type": "string",
@@ -606,10 +1196,10 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "204": {
-                        "description": "Presentation started and first poll displayed"
+                        "description": "Started"
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `",
+                        "description": "Invalid id",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -621,7 +1211,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "The logged-in user does not own the presentation",
+                        "description": "Not the owner",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -633,7 +1223,7 @@ const docTemplate = `{
                         }
                     },
                     "409": {
-                        "description": "Presentation already started",
+                        "description": "Already started",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -654,7 +1244,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "Returns every vote of every poll, ordered by poll, with whether each vote was correct. Only the owner of the presentation can do this.",
+                "description": "Every vote of every poll, with whether it was correct. Owner only.",
                 "produces": [
                     "application/json"
                 ],
@@ -683,7 +1273,7 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Invalid ` + "`" + `presentation_id` + "`" + `",
+                        "description": "Invalid id",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -695,7 +1285,7 @@ const docTemplate = `{
                         }
                     },
                     "403": {
-                        "description": "The logged-in user does not own the presentation",
+                        "description": "Not the owner",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -715,9 +1305,40 @@ const docTemplate = `{
                 }
             }
         },
+        "/ready": {
+            "get": {
+                "description": "200 when the API can reach its database, 503 otherwise.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "health"
+                ],
+                "summary": "Readiness check",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/users": {
             "post": {
-                "description": "Creates a user. The password is hashed before it is stored and is never returned.",
                 "consumes": [
                     "application/json"
                 ],
@@ -727,7 +1348,7 @@ const docTemplate = `{
                 "tags": [
                     "users"
                 ],
-                "summary": "Create a user",
+                "summary": "Sign up",
                 "parameters": [
                     {
                         "description": "The new user",
@@ -747,19 +1368,25 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Body is missing mandatory fields, the email is invalid, or the password is shorter than 8 characters",
+                        "description": "Invalid body",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "409": {
-                        "description": "A user with this email already exists",
+                        "description": "Email already registered",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "415": {
                         "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -775,7 +1402,7 @@ const docTemplate = `{
         },
         "/users/login": {
             "post": {
-                "description": "Checks the email and password and returns the user with a signed access token.",
+                "description": "Returns a short-lived access token and a single-use refresh token.",
                 "consumes": [
                     "application/json"
                 ],
@@ -785,7 +1412,7 @@ const docTemplate = `{
                 "tags": [
                     "users"
                 ],
-                "summary": "Log in a user",
+                "summary": "Log in",
                 "parameters": [
                     {
                         "description": "Email and password",
@@ -805,13 +1432,64 @@ const docTemplate = `{
                         }
                     },
                     "400": {
-                        "description": "Body is missing mandatory fields or the email is invalid",
+                        "description": "Invalid body",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
                     },
                     "401": {
-                        "description": "The email or password is wrong",
+                        "description": "Wrong email or password",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "429": {
+                        "description": "Too many requests",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/users/logout": {
+            "post": {
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Log out",
+                "parameters": [
+                    {
+                        "description": "The refresh token to revoke",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.RefreshTokenRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Logged out"
+                    },
+                    "400": {
+                        "description": "Invalid body",
                         "schema": {
                             "$ref": "#/definitions/model.ErrorResponse"
                         }
@@ -892,9 +1570,86 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/users/token/refresh": {
+            "post": {
+                "description": "Exchanges a refresh token for a new access token and a new refresh token. The old refresh token stops working. Presenting an already-used refresh token ends every session of that user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "users"
+                ],
+                "summary": "Refresh the access token",
+                "parameters": [
+                    {
+                        "description": "The refresh token",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/model.RefreshTokenRequestDTO"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/model.LoginUserResponseDTO"
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid body",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "401": {
+                        "description": "Refresh token invalid, expired or already used",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "415": {
+                        "description": "Content-Type is not application/json",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/model.ErrorResponse"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "model.CreateMessageRequestDTO": {
+            "type": "object",
+            "required": [
+                "body"
+            ],
+            "properties": {
+                "body": {
+                    "type": "string",
+                    "example": "Good luck everyone!"
+                },
+                "player_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "player_token": {
+                    "type": "string"
+                }
+            }
+        },
         "model.CreatePresentationResponse": {
             "type": "object",
             "properties": {
@@ -912,6 +1667,20 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/model.Poll"
                     }
+                },
+                "prize_currency": {
+                    "description": "PrizeCurrency is an ISO 4217 code. Defaults to NGN.",
+                    "type": "string",
+                    "example": "NGN"
+                },
+                "prize_pool": {
+                    "description": "PrizePool is optional prize money, in whole units of PrizeCurrency.\nLeave it out (or send 0) for a game without money. The top 3 ranks\nshare it in proportion to their scores.",
+                    "type": "integer",
+                    "example": 50000
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Friday tech quiz"
                 }
             }
         },
@@ -925,14 +1694,17 @@ const docTemplate = `{
             "properties": {
                 "email": {
                     "type": "string",
+                    "maxLength": 254,
                     "example": "ada@example.com"
                 },
                 "name": {
                     "type": "string",
+                    "maxLength": 80,
                     "example": "Ada Lovelace"
                 },
                 "password": {
                     "type": "string",
+                    "maxLength": 72,
                     "minLength": 8,
                     "example": "s3cretpass"
                 }
@@ -960,6 +1732,7 @@ const docTemplate = `{
             "required": [
                 "key",
                 "player_id",
+                "player_token",
                 "poll_id"
             ],
             "properties": {
@@ -971,6 +1744,10 @@ const docTemplate = `{
                     "type": "string",
                     "format": "uuid",
                     "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "player_token": {
+                    "type": "string",
+                    "example": "q3Yx..."
                 },
                 "poll_id": {
                     "type": "string",
@@ -999,9 +1776,31 @@ const docTemplate = `{
                 "question"
             ],
             "properties": {
+                "closed_reason": {
+                    "description": "ClosedReason says why it closed: won, time_up, revealed or finished.",
+                    "type": "string",
+                    "enum": [
+                        "won",
+                        "time_up",
+                        "revealed",
+                        "finished"
+                    ],
+                    "example": "won"
+                },
+                "closes_at": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string",
                     "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "index": {
+                    "type": "integer",
+                    "example": 1
+                },
+                "opened_at": {
+                    "description": "OpenedAt and ClosesAt bound the countdown. Compare ClosesAt with\nServerTime (not the device clock) to show the time left.",
+                    "type": "string"
                 },
                 "options": {
                     "type": "array",
@@ -1012,6 +1811,27 @@ const docTemplate = `{
                 "question": {
                     "type": "string",
                     "example": "What is your favourite language?"
+                },
+                "revealed": {
+                    "description": "Revealed is true once the poll no longer takes answers; the correct\noptions are then included.",
+                    "type": "boolean",
+                    "example": false
+                },
+                "scored": {
+                    "description": "Scored is true when the poll has a correct option (a quiz question).\nOpinion polls take one answer per player; scored polls allow retries.",
+                    "type": "boolean",
+                    "example": true
+                },
+                "server_time": {
+                    "type": "string"
+                },
+                "time_limit_seconds": {
+                    "description": "TimeLimitSeconds is how long players have to answer (5-600). 0 means\nthe default of 20 seconds.",
+                    "type": "integer",
+                    "example": 20
+                },
+                "winner": {
+                    "$ref": "#/definitions/model.PollWinner"
                 }
             }
         },
@@ -1032,6 +1852,11 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 4
                 },
+                "payout": {
+                    "description": "Payout is this player's current share of the prize (0 when there is\nno prize, or the player is outside the top 3 ranks). It changes live\nas scores change, and is final once the presentation finishes.",
+                    "type": "integer",
+                    "example": 25000
+                },
                 "player_id": {
                     "type": "string",
                     "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
@@ -1041,12 +1866,11 @@ const docTemplate = `{
                     "example": "Ada"
                 },
                 "rank": {
-                    "description": "Rank starts at 1. Players with the same score share a rank.",
                     "type": "integer",
                     "example": 1
                 },
                 "score": {
-                    "description": "Score is the number of polls answered correctly.",
+                    "description": "Score is the number of revealed polls answered correctly.",
                     "type": "integer",
                     "example": 3
                 }
@@ -1061,8 +1885,16 @@ const docTemplate = `{
                         "$ref": "#/definitions/model.LeaderboardEntry"
                     }
                 },
+                "prize": {
+                    "description": "Prize is null when the presentation has no prize money.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/model.Prize"
+                        }
+                    ]
+                },
                 "scored_polls": {
-                    "description": "ScoredPolls is the highest score possible so far: displayed polls that\nhave a correct answer.",
+                    "description": "ScoredPolls is the highest score possible so far.",
                     "type": "integer",
                     "example": 4
                 }
@@ -1081,6 +1913,7 @@ const docTemplate = `{
                 },
                 "password": {
                     "type": "string",
+                    "maxLength": 72,
                     "minLength": 8,
                     "example": "s3cretpass"
                 }
@@ -1089,6 +1922,12 @@ const docTemplate = `{
         "model.LoginUserResponseDTO": {
             "type": "object",
             "properties": {
+                "access_token": {
+                    "type": "string"
+                },
+                "access_token_expires_at": {
+                    "type": "string"
+                },
                 "email": {
                     "type": "string",
                     "example": "ada@example.com"
@@ -1101,8 +1940,44 @@ const docTemplate = `{
                     "type": "string",
                     "example": "Ada Lovelace"
                 },
-                "token": {
+                "refresh_token": {
                     "type": "string"
+                },
+                "refresh_token_expires_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "model.MessageResponse": {
+            "type": "object",
+            "properties": {
+                "author_id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "author_name": {
+                    "type": "string",
+                    "example": "Ada"
+                },
+                "author_role": {
+                    "type": "string",
+                    "enum": [
+                        "host",
+                        "player"
+                    ],
+                    "example": "player"
+                },
+                "body": {
+                    "type": "string",
+                    "example": "Good luck everyone!"
+                },
+                "created_at": {
+                    "type": "string",
+                    "example": "2026-10-23T14:00:00.123456Z"
+                },
+                "id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
                 }
             }
         },
@@ -1117,6 +1992,10 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 1
                 },
+                "has_finished": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "has_started": {
                     "type": "boolean",
                     "example": false
@@ -1125,9 +2004,20 @@ const docTemplate = `{
                     "type": "string",
                     "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 },
+                "player_count": {
+                    "type": "integer",
+                    "example": 12
+                },
                 "poll_count": {
                     "type": "integer",
                     "example": 5
+                },
+                "prize": {
+                    "$ref": "#/definitions/model.Prize"
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Friday tech quiz"
                 }
             }
         },
@@ -1139,7 +2029,7 @@ const docTemplate = `{
             ],
             "properties": {
                 "correct": {
-                    "description": "Correct marks the right answer when creating a presentation. It is never\nfilled in responses (the poll queries do not select it), so players\ncannot see the answer; omitempty keeps it out of the JSON.",
+                    "description": "Correct marks the right answer. Public responses only include it once\nthe poll is revealed; the owner always sees it. omitempty keeps false\n(and hidden) values out of the JSON.",
                     "type": "boolean",
                     "example": true
                 },
@@ -1169,24 +2059,60 @@ const docTemplate = `{
                 "question": {
                     "type": "string",
                     "example": "What is your favourite language?"
+                },
+                "time_limit_seconds": {
+                    "description": "TimeLimitSeconds is how long players have to answer (5-600). 0 means\nthe default of 20 seconds.",
+                    "type": "integer",
+                    "example": 20
+                }
+            }
+        },
+        "model.PollWinner": {
+            "type": "object",
+            "properties": {
+                "elapsed_ms": {
+                    "type": "integer",
+                    "example": 3200
+                },
+                "key": {
+                    "type": "string",
+                    "example": "B"
+                },
+                "player_id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "player_name": {
+                    "type": "string",
+                    "example": "Ada"
+                },
+                "won_at": {
+                    "type": "string"
                 }
             }
         },
         "model.PresentationResponsePoll": {
             "type": "object",
-            "required": [
-                "options",
-                "question"
-            ],
             "properties": {
+                "id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
                 "options": {
                     "type": "array",
                     "items": {
-                        "type": "object"
+                        "$ref": "#/definitions/model.Option"
                     }
                 },
                 "question": {
                     "type": "string"
+                },
+                "revealed": {
+                    "type": "boolean"
+                },
+                "time_limit_seconds": {
+                    "type": "integer",
+                    "example": 20
                 }
             }
         },
@@ -1226,8 +2152,11 @@ const docTemplate = `{
                     "type": "integer",
                     "example": 1
                 },
+                "has_finished": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "has_started": {
-                    "description": "HasStarted is false while players can still register.",
                     "type": "boolean",
                     "example": false
                 },
@@ -1235,11 +2164,52 @@ const docTemplate = `{
                     "type": "string",
                     "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
                 },
+                "is_owner": {
+                    "type": "boolean",
+                    "example": false
+                },
                 "polls": {
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/model.PresentationResponsePoll"
                     }
+                },
+                "prize": {
+                    "description": "Prize is null when the presentation has no prize money.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/model.Prize"
+                        }
+                    ]
+                },
+                "title": {
+                    "type": "string",
+                    "example": "Friday tech quiz"
+                }
+            }
+        },
+        "model.Prize": {
+            "type": "object",
+            "properties": {
+                "currency": {
+                    "type": "string",
+                    "example": "NGN"
+                },
+                "pool": {
+                    "type": "integer",
+                    "example": 50000
+                }
+            }
+        },
+        "model.RefreshTokenRequestDTO": {
+            "type": "object",
+            "required": [
+                "refresh_token"
+            ],
+            "properties": {
+                "refresh_token": {
+                    "type": "string",
+                    "example": "bX9k..."
                 }
             }
         },
@@ -1252,6 +2222,23 @@ const docTemplate = `{
                 "player_name": {
                     "type": "string",
                     "example": "Ada"
+                }
+            }
+        },
+        "model.RegisteredPlayerResponse": {
+            "type": "object",
+            "properties": {
+                "player_id": {
+                    "type": "string",
+                    "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+                },
+                "player_name": {
+                    "type": "string",
+                    "example": "Ada"
+                },
+                "player_token": {
+                    "type": "string",
+                    "example": "q3Yx..."
                 }
             }
         },
@@ -1271,11 +2258,29 @@ const docTemplate = `{
                     "example": "Ada"
                 }
             }
+        },
+        "model.VoteResult": {
+            "type": "object",
+            "properties": {
+                "correct": {
+                    "type": "boolean"
+                },
+                "elapsed_ms": {
+                    "type": "integer",
+                    "example": 3200
+                },
+                "scored": {
+                    "type": "boolean"
+                },
+                "won": {
+                    "type": "boolean"
+                }
+            }
         }
     },
     "securityDefinitions": {
         "BearerAuth": {
-            "description": "Type \"Bearer \" followed by the token returned by POST /users/login.",
+            "description": "Type \"Bearer \" followed by the access_token returned by POST /users/login or POST /users/token/refresh.",
             "type": "apiKey",
             "name": "Authorization",
             "in": "header"
@@ -1285,12 +2290,12 @@ const docTemplate = `{
 
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
-	Version:          "1.0",
+	Version:          "2.0",
 	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{"http"},
 	Title:            "Interactive Presentation API",
-	Description:      "Create presentations made of polls, step through the polls one at a time, and collect votes on the poll currently displayed.",
+	Description:      "Run live quiz presentations. A host creates a presentation made of polls and shares its link; players join with a name (and get a secret `player_token`).\nThe host starts the presentation, steps through the polls (next / previous), reveals each answer, and finishes. Players vote on the poll on screen.\nOnly revealed polls score on the public leaderboard, so it never gives an answer away. Players and the host share a chat.\nLive updates: open `GET /presentations/{presentation_id}/events` (Server-Sent Events) to hear about every change instantly.\nAuth: log in for a 15-minute access token and a single-use refresh token; swap it at `POST /users/token/refresh` before the access token expires.\nEvery error response is `{\"error\": \"<message>\"}`.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

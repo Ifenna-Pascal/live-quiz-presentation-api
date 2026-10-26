@@ -1,5 +1,18 @@
 basePath: /
 definitions:
+  model.CreateMessageRequestDTO:
+    properties:
+      body:
+        example: Good luck everyone!
+        type: string
+      player_id:
+        format: uuid
+        type: string
+      player_token:
+        type: string
+    required:
+    - body
+    type: object
   model.CreatePresentationResponse:
     properties:
       presentation_id:
@@ -12,17 +25,34 @@ definitions:
         items:
           $ref: '#/definitions/model.Poll'
         type: array
+      prize_currency:
+        description: PrizeCurrency is an ISO 4217 code. Defaults to NGN.
+        example: NGN
+        type: string
+      prize_pool:
+        description: |-
+          PrizePool is optional prize money, in whole units of PrizeCurrency.
+          Leave it out (or send 0) for a game without money. The top 3 ranks
+          share it in proportion to their scores.
+        example: 50000
+        type: integer
+      title:
+        example: Friday tech quiz
+        type: string
     type: object
   model.CreateUserRequestDTO:
     properties:
       email:
         example: ada@example.com
+        maxLength: 254
         type: string
       name:
         example: Ada Lovelace
+        maxLength: 80
         type: string
       password:
         example: s3cretpass
+        maxLength: 72
         minLength: 8
         type: string
     required:
@@ -51,6 +81,9 @@ definitions:
         example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
         format: uuid
         type: string
+      player_token:
+        example: q3Yx...
+        type: string
       poll_id:
         example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
         format: uuid
@@ -58,6 +91,7 @@ definitions:
     required:
     - key
     - player_id
+    - player_token
     - poll_id
     type: object
   model.CreatedPresentationPlayerResponse:
@@ -71,8 +105,27 @@ definitions:
     type: object
   model.CurrentPoll:
     properties:
+      closed_reason:
+        description: 'ClosedReason says why it closed: won, time_up, revealed or finished.'
+        enum:
+        - won
+        - time_up
+        - revealed
+        - finished
+        example: won
+        type: string
+      closes_at:
+        type: string
       id:
         example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      index:
+        example: 1
+        type: integer
+      opened_at:
+        description: |-
+          OpenedAt and ClosesAt bound the countdown. Compare ClosesAt with
+          ServerTime (not the device clock) to show the time left.
         type: string
       options:
         items:
@@ -81,6 +134,28 @@ definitions:
       question:
         example: What is your favourite language?
         type: string
+      revealed:
+        description: |-
+          Revealed is true once the poll no longer takes answers; the correct
+          options are then included.
+        example: false
+        type: boolean
+      scored:
+        description: |-
+          Scored is true when the poll has a correct option (a quiz question).
+          Opinion polls take one answer per player; scored polls allow retries.
+        example: true
+        type: boolean
+      server_time:
+        type: string
+      time_limit_seconds:
+        description: |-
+          TimeLimitSeconds is how long players have to answer (5-600). 0 means
+          the default of 20 seconds.
+        example: 20
+        type: integer
+      winner:
+        $ref: '#/definitions/model.PollWinner'
     required:
     - options
     - question
@@ -97,6 +172,13 @@ definitions:
         description: Answered is the number of polls the player voted on.
         example: 4
         type: integer
+      payout:
+        description: |-
+          Payout is this player's current share of the prize (0 when there is
+          no prize, or the player is outside the top 3 ranks). It changes live
+          as scores change, and is final once the presentation finishes.
+        example: 25000
+        type: integer
       player_id:
         example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
         type: string
@@ -104,11 +186,10 @@ definitions:
         example: Ada
         type: string
       rank:
-        description: Rank starts at 1. Players with the same score share a rank.
         example: 1
         type: integer
       score:
-        description: Score is the number of polls answered correctly.
+        description: Score is the number of revealed polls answered correctly.
         example: 3
         type: integer
     type: object
@@ -118,10 +199,12 @@ definitions:
         items:
           $ref: '#/definitions/model.LeaderboardEntry'
         type: array
+      prize:
+        allOf:
+        - $ref: '#/definitions/model.Prize'
+        description: Prize is null when the presentation has no prize money.
       scored_polls:
-        description: |-
-          ScoredPolls is the highest score possible so far: displayed polls that
-          have a correct answer.
+        description: ScoredPolls is the highest score possible so far.
         example: 4
         type: integer
     type: object
@@ -132,6 +215,7 @@ definitions:
         type: string
       password:
         example: s3cretpass
+        maxLength: 72
         minLength: 8
         type: string
     required:
@@ -140,6 +224,10 @@ definitions:
     type: object
   model.LoginUserResponseDTO:
     properties:
+      access_token:
+        type: string
+      access_token_expires_at:
+        type: string
       email:
         example: ada@example.com
         type: string
@@ -149,7 +237,33 @@ definitions:
       name:
         example: Ada Lovelace
         type: string
-      token:
+      refresh_token:
+        type: string
+      refresh_token_expires_at:
+        type: string
+    type: object
+  model.MessageResponse:
+    properties:
+      author_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      author_name:
+        example: Ada
+        type: string
+      author_role:
+        enum:
+        - host
+        - player
+        example: player
+        type: string
+      body:
+        example: Good luck everyone!
+        type: string
+      created_at:
+        example: "2026-10-23T14:00:00.123456Z"
+        type: string
+      id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
         type: string
     type: object
   model.MyPresentationResponse:
@@ -160,23 +274,34 @@ definitions:
       current_poll_index:
         example: 1
         type: integer
+      has_finished:
+        example: false
+        type: boolean
       has_started:
         example: false
         type: boolean
       id:
         example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
         type: string
+      player_count:
+        example: 12
+        type: integer
       poll_count:
         example: 5
         type: integer
+      prize:
+        $ref: '#/definitions/model.Prize'
+      title:
+        example: Friday tech quiz
+        type: string
     type: object
   model.Option:
     properties:
       correct:
         description: |-
-          Correct marks the right answer when creating a presentation. It is never
-          filled in responses (the poll queries do not select it), so players
-          cannot see the answer; omitempty keeps it out of the JSON.
+          Correct marks the right answer. Public responses only include it once
+          the poll is revealed; the owner always sees it. omitempty keeps false
+          (and hidden) values out of the JSON.
         example: true
         type: boolean
       key:
@@ -198,21 +323,49 @@ definitions:
       question:
         example: What is your favourite language?
         type: string
+      time_limit_seconds:
+        description: |-
+          TimeLimitSeconds is how long players have to answer (5-600). 0 means
+          the default of 20 seconds.
+        example: 20
+        type: integer
     required:
     - options
     - question
     type: object
+  model.PollWinner:
+    properties:
+      elapsed_ms:
+        example: 3200
+        type: integer
+      key:
+        example: B
+        type: string
+      player_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      player_name:
+        example: Ada
+        type: string
+      won_at:
+        type: string
+    type: object
   model.PresentationResponsePoll:
     properties:
+      id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
       options:
         items:
-          type: object
+          $ref: '#/definitions/model.Option'
         type: array
       question:
         type: string
-    required:
-    - options
-    - question
+      revealed:
+        type: boolean
+      time_limit_seconds:
+        example: 20
+        type: integer
     type: object
   model.PresentationVoteResponse:
     properties:
@@ -240,17 +393,46 @@ definitions:
       current_poll_index:
         example: 1
         type: integer
+      has_finished:
+        example: false
+        type: boolean
       has_started:
-        description: HasStarted is false while players can still register.
         example: false
         type: boolean
       id:
         example: 3fa85f64-5717-4562-b3fc-2c963f66afa6
         type: string
+      is_owner:
+        example: false
+        type: boolean
       polls:
         items:
           $ref: '#/definitions/model.PresentationResponsePoll'
         type: array
+      prize:
+        allOf:
+        - $ref: '#/definitions/model.Prize'
+        description: Prize is null when the presentation has no prize money.
+      title:
+        example: Friday tech quiz
+        type: string
+    type: object
+  model.Prize:
+    properties:
+      currency:
+        example: NGN
+        type: string
+      pool:
+        example: 50000
+        type: integer
+    type: object
+  model.RefreshTokenRequestDTO:
+    properties:
+      refresh_token:
+        example: bX9k...
+        type: string
+    required:
+    - refresh_token
     type: object
   model.RegisterPlayerToPresentation:
     properties:
@@ -259,6 +441,18 @@ definitions:
         type: string
     required:
     - player_name
+    type: object
+  model.RegisteredPlayerResponse:
+    properties:
+      player_id:
+        example: 7c9e6679-7425-40de-944b-e07fc1f90ae7
+        type: string
+      player_name:
+        example: Ada
+        type: string
+      player_token:
+        example: q3Yx...
+        type: string
     type: object
   model.VoteResponse:
     properties:
@@ -272,12 +466,29 @@ definitions:
         example: Ada
         type: string
     type: object
+  model.VoteResult:
+    properties:
+      correct:
+        type: boolean
+      elapsed_ms:
+        example: 3200
+        type: integer
+      scored:
+        type: boolean
+      won:
+        type: boolean
+    type: object
 info:
   contact: {}
-  description: Create presentations made of polls, step through the polls one at a
-    time, and collect votes on the poll currently displayed.
+  description: |-
+    Run live quiz presentations. A host creates a presentation made of polls and shares its link; players join with a name (and get a secret `player_token`).
+    The host starts the presentation, steps through the polls (next / previous), reveals each answer, and finishes. Players vote on the poll on screen.
+    Only revealed polls score on the public leaderboard, so it never gives an answer away. Players and the host share a chat.
+    Live updates: open `GET /presentations/{presentation_id}/events` (Server-Sent Events) to hear about every change instantly.
+    Auth: log in for a 15-minute access token and a single-use refresh token; swap it at `POST /users/token/refresh` before the access token expires.
+    Every error response is `{"error": "<message>"}`.
   title: Interactive Presentation API
-  version: "1.0"
+  version: "2.0"
 paths:
   /ping:
     get:
@@ -297,11 +508,10 @@ paths:
     post:
       consumes:
       - application/json
-      description: 'Creates a presentation owned by the logged-in user, together with
-        its polls and their options. No poll is displayed yet: `current_poll_index`
-        starts at 0 until the first `PUT .../polls/current`.'
+      description: '1-50 polls, each with a question and 2-6 options with unique keys.
+        Mark right answers with `correct: true`.'
       parameters:
-      - description: The polls of the presentation, in display order
+      - description: Title and polls
         in: body
         name: presentation
         required: true
@@ -315,10 +525,9 @@ paths:
           schema:
             $ref: '#/definitions/model.CreatePresentationResponse'
         "400":
-          description: Body is missing mandatory fields, has a wrong type, or contains
-            no polls
+          description: Invalid body or rule broken
           schema:
-            type: string
+            $ref: '#/definitions/model.ErrorResponse'
         "401":
           description: Missing, invalid or expired access token
           schema:
@@ -327,16 +536,57 @@ paths:
           description: Content-Type is not application/json
           schema:
             $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
       security:
       - BearerAuth: []
       summary: Create a presentation
       tags:
       - presentations
   /presentations/{presentation_id}:
+    delete:
+      description: Deletes the presentation with its polls, players, votes and chat.
+        Owner only.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Deleted
+        "400":
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Delete a presentation
+      tags:
+      - presentations
     get:
-      description: Returns the index of the poll currently displayed, whether the
-        presentation has started (`has_started` is false while players can still register),
-        and all polls of the presentation. Correct answers are never included.
+      description: Public. With the owner's access token the options include `correct`
+        and `is_owner` is true; otherwise answers are only shown for revealed polls.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -350,16 +600,13 @@ paths:
         "200":
           description: OK
           schema:
-            allOf:
-            - $ref: '#/definitions/model.PresentionResponseDTO'
-            - properties:
-                polls:
-                  items:
-                    $ref: '#/definitions/model.Poll'
-                  type: array
-              type: object
+            $ref: '#/definitions/model.PresentionResponseDTO'
         "400":
-          description: '`presentation_id` is not a valid UUID'
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: An Authorization header was sent but is invalid
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -373,12 +620,134 @@ paths:
       summary: Get a presentation
       tags:
       - presentations
+    put:
+      consumes:
+      - application/json
+      description: Replaces the title and every poll. Only before the presentation
+        starts. Owner only.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      - description: Title and polls
+        in: body
+        name: presentation
+        required: true
+        schema:
+          $ref: '#/definitions/model.CreatePresentionRequestDTO'
+      responses:
+        "204":
+          description: Saved
+        "400":
+          description: Invalid id, body or rule broken
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Already started
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "415":
+          description: Content-Type is not application/json
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Edit a presentation
+      tags:
+      - presentations
+  /presentations/{presentation_id}/events:
+    get:
+      description: 'Open with the browser''s EventSource. Event names: `ready`, `presentation`,
+        `players`, `vote` (data: {"poll_id"}), `chat` (data: a MessageResponse), `deleted`,
+        `resync`. Except for chat, an event means "fetch this again".'
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      produces:
+      - text/event-stream
+      responses:
+        "200":
+          description: An endless event stream
+        "400":
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Stream live updates (Server-Sent Events)
+      tags:
+      - realtime
+  /presentations/{presentation_id}/finish:
+    post:
+      description: Owner only. Closes voting and counts every shown poll on the leaderboard.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Finished
+        "400":
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Not started, or already finished
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Finish the presentation
+      tags:
+      - presentations
   /presentations/{presentation_id}/leaderboard:
     get:
-      description: Ranks every registered player by the number of polls answered correctly
-        (one point per correct vote). Polls without a correct option are not scored.
-        Players with the same score share a rank. Only the owner of the presentation
-        can do this.
+      description: Public. One point per correct answer; a poll only counts once it
+        is revealed (or the presentation has finished). Ties share a rank.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -394,15 +763,7 @@ paths:
           schema:
             $ref: '#/definitions/model.LeaderboardResponse'
         "400":
-          description: Invalid `presentation_id`
-          schema:
-            $ref: '#/definitions/model.ErrorResponse'
-        "401":
-          description: Missing, invalid or expired access token
-          schema:
-            $ref: '#/definitions/model.ErrorResponse'
-        "403":
-          description: The logged-in user does not own the presentation
+          description: Invalid id
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -413,15 +774,114 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      security:
-      - BearerAuth: []
       summary: Get the leaderboard
       tags:
       - votes
+  /presentations/{presentation_id}/messages:
+    get:
+      description: 'Oldest first. Without `after`: the newest `limit` messages. With
+        `after` (RFC 3339): the messages sent after that time.'
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      - description: Only messages after this time
+        format: date-time
+        in: query
+        name: after
+        type: string
+      - default: 100
+        description: Max messages (1-200)
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/model.MessageResponse'
+            type: array
+        "400":
+          description: Invalid id, `after` or `limit`
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: List chat messages
+      tags:
+      - chat
+    post:
+      consumes:
+      - application/json
+      description: Players send `player_id` and `player_token`. The host sends neither
+        and authenticates with the access token.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      - description: The message (1-500 characters)
+        in: body
+        name: message
+        required: true
+        schema:
+          $ref: '#/definitions/model.CreateMessageRequestDTO'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/model.MessageResponse'
+        "400":
+          description: Invalid id or body, or empty / too long message
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Authorization header sent but invalid
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Wrong player id or token, or not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "415":
+          description: Content-Type is not application/json
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "429":
+          description: Too many requests
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Send a chat message
+      tags:
+      - chat
   /presentations/{presentation_id}/players:
     get:
-      description: Returns every player registered in the presentation, in the order
-        they registered.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -439,7 +899,7 @@ paths:
               $ref: '#/definitions/model.CreatedPresentationPlayerResponse'
             type: array
         "400":
-          description: Invalid `presentation_id`
+          description: Invalid id
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -450,14 +910,15 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: List the players of a presentation
+      summary: List players
       tags:
       - players
     post:
       consumes:
       - application/json
-      description: Registers a player in a presentation. Registration is only open
-        until the presentation starts, and a name can be used only once per presentation.
+      description: Registers a player while the presentation has not started. The
+        response contains `player_token`, a secret the player must send to vote and
+        chat. It is shown only once.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -477,31 +938,77 @@ paths:
         "201":
           description: Created
           schema:
-            $ref: '#/definitions/model.CreatedPresentationPlayerResponse'
+            $ref: '#/definitions/model.RegisteredPlayerResponse'
         "400":
-          description: Invalid `presentation_id`, invalid body, or empty `player_name`
+          description: Invalid id, body, or name
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "409":
-          description: Presentation not found or already started, or `player_name`
-            already taken
+          description: Name taken, or presentation missing or already started
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "415":
           description: Content-Type is not application/json
           schema:
             $ref: '#/definitions/model.ErrorResponse'
+        "429":
+          description: Too many requests
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: Register a player
+      summary: Join a presentation
+      tags:
+      - players
+  /presentations/{presentation_id}/players/{player_id}:
+    delete:
+      description: Deletes the player, their votes and their chat messages. Owner
+        only.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      - description: Player ID
+        format: uuid
+        in: path
+        name: player_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Removed
+        "400":
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation or player not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Remove a player
       tags:
       - players
   /presentations/{presentation_id}/polls/{poll_id}/votes:
     get:
-      description: Returns every vote cast on the given poll, ordered by option key.
-        Any poll of the presentation can be read, including past ones.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -525,7 +1032,9 @@ paths:
               $ref: '#/definitions/model.VoteResponse'
             type: array
         "400":
-          description: An invalid UUID in the path (empty body)
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
         "404":
           description: Presentation or poll not found
           schema:
@@ -539,7 +1048,7 @@ paths:
       - votes
   /presentations/{presentation_id}/polls/current:
     get:
-      description: Returns the poll that is currently displayed.
+      description: Public. `correct` flags appear once the poll is revealed.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -555,8 +1064,7 @@ paths:
           schema:
             $ref: '#/definitions/model.CurrentPoll'
         "400":
-          description: No poll is currently displayed. (An invalid `presentation_id`
-            also gives 400, with a plain JSON string as body.)
+          description: Invalid id, or no poll on screen yet
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -567,12 +1075,11 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: Get the current poll
+      summary: Get the poll on screen
       tags:
-      - polls
+      - presentations
     put:
-      description: Moves the presentation forward by one poll and returns the poll
-        that is now displayed. Only the owner of the presentation can do this.
+      description: Owner only. Returns the new poll, with correct answers.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -588,8 +1095,7 @@ paths:
           schema:
             $ref: '#/definitions/model.CurrentPoll'
         "400":
-          description: '`presentation_id` is not a valid UUID, or the presentation
-            ran out of polls'
+          description: Invalid id, or no more polls
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "401":
@@ -597,7 +1103,7 @@ paths:
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "403":
-          description: The logged-in user does not own the presentation
+          description: Not the owner
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -610,16 +1116,64 @@ paths:
             $ref: '#/definitions/model.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Display the next poll
+      summary: Show the next poll
       tags:
-      - polls
+      - presentations
+  /presentations/{presentation_id}/polls/current/reveal:
+    post:
+      description: Owner only. Closes voting on the poll, shows its correct answer
+        to everyone and adds it to the leaderboard.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.CurrentPoll'
+        "400":
+          description: Invalid id, or no poll on screen
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Not started
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Reveal the answer of the poll on screen
+      tags:
+      - presentations
   /presentations/{presentation_id}/polls/current/votes:
     post:
       consumes:
       - application/json
-      description: Records one vote of a registered player for an option of the poll
-        currently displayed. `poll_id` must be the ID of that poll, and the presentation
-        must have started.
+      description: |-
+        The player proves who they are with the `player_token` they got at registration.
+        Timed: answers are accepted until `closes_at`. The first correct answer wins the poll and closes it; answers are handled one at a time, so exactly one player can win.
+        On scored polls a wrong answer can be followed by another option (each option once). On opinion polls each player answers once.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -636,16 +1190,17 @@ paths:
       produces:
       - application/json
       responses:
-        "204":
-          description: Vote recorded
+        "200":
+          description: 'Answer recorded: correct or not, and whether it won the poll'
+          schema:
+            $ref: '#/definitions/model.VoteResult'
         "400":
-          description: Invalid `presentation_id`, invalid body, `poll_id` is not the
-            current poll, no poll displayed yet, or unknown option key
+          description: Invalid id or body, not the poll on screen, no poll on screen,
+            or unknown option
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "403":
-          description: '`player_id` is not registered in this presentation, or the
-            presentation has not started'
+          description: Player not registered, wrong player token, or not started
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -653,24 +1208,28 @@ paths:
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "409":
-          description: The player already voted on this poll
+          description: Option already tried, someone already won, time is up, or voting
+            closed
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "415":
           description: Content-Type is not application/json
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-        "500":
-          description: Any other failure
+        "429":
+          description: Too many requests
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: Vote on the current poll
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Answer the poll on screen
       tags:
       - votes
-  /presentations/{presentation_id}/start:
-    post:
-      description: 'Starts the presentation: closes player registration, opens voting
-        and displays the first poll. Only the owner of the presentation can do this.'
+  /presentations/{presentation_id}/polls/previous:
+    put:
+      description: Owner only. Never goes before poll 1.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -681,10 +1240,12 @@ paths:
       produces:
       - application/json
       responses:
-        "204":
-          description: Presentation started and first poll displayed
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.CurrentPoll'
         "400":
-          description: Invalid `presentation_id`
+          description: Invalid id, or already on the first poll
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "401":
@@ -692,15 +1253,11 @@ paths:
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "403":
-          description: The logged-in user does not own the presentation
+          description: Not the owner
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
           description: Presentation not found
-          schema:
-            $ref: '#/definitions/model.ErrorResponse'
-        "409":
-          description: Presentation already started
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "500":
@@ -709,13 +1266,54 @@ paths:
             $ref: '#/definitions/model.ErrorResponse'
       security:
       - BearerAuth: []
-      summary: Start a presentation
+      summary: Show the previous poll
+      tags:
+      - presentations
+  /presentations/{presentation_id}/start:
+    post:
+      description: Closes registration and shows the first poll. Owner only.
+      parameters:
+      - description: Presentation ID
+        format: uuid
+        in: path
+        name: presentation_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: Started
+        "400":
+          description: Invalid id
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Missing, invalid or expired access token
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "403":
+          description: Not the owner
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "404":
+          description: Presentation not found
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "409":
+          description: Already started
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      security:
+      - BearerAuth: []
+      summary: Start the presentation
       tags:
       - players
   /presentations/{presentation_id}/votes:
     get:
-      description: Returns every vote of every poll, ordered by poll, with whether
-        each vote was correct. Only the owner of the presentation can do this.
+      description: Every vote of every poll, with whether it was correct. Owner only.
       parameters:
       - description: Presentation ID
         format: uuid
@@ -733,7 +1331,7 @@ paths:
               $ref: '#/definitions/model.PresentationVoteResponse'
             type: array
         "400":
-          description: Invalid `presentation_id`
+          description: Invalid id
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "401":
@@ -741,7 +1339,7 @@ paths:
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "403":
-          description: The logged-in user does not own the presentation
+          description: Not the owner
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "404":
@@ -757,12 +1355,31 @@ paths:
       summary: List all votes of a presentation
       tags:
       - votes
+  /ready:
+    get:
+      description: 200 when the API can reach its database, 503 otherwise.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Readiness check
+      tags:
+      - health
   /users:
     post:
       consumes:
       - application/json
-      description: Creates a user. The password is hashed before it is stored and
-        is never returned.
       parameters:
       - description: The new user
         in: body
@@ -778,31 +1395,33 @@ paths:
           schema:
             $ref: '#/definitions/model.CreateUserResponseDTO'
         "400":
-          description: Body is missing mandatory fields, the email is invalid, or
-            the password is shorter than 8 characters
+          description: Invalid body
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "409":
-          description: A user with this email already exists
+          description: Email already registered
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "415":
           description: Content-Type is not application/json
           schema:
             $ref: '#/definitions/model.ErrorResponse'
+        "429":
+          description: Too many requests
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
         "500":
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: Create a user
+      summary: Sign up
       tags:
       - users
   /users/login:
     post:
       consumes:
       - application/json
-      description: Checks the email and password and returns the user with a signed
-        access token.
+      description: Returns a short-lived access token and a single-use refresh token.
       parameters:
       - description: Email and password
         in: body
@@ -818,11 +1437,44 @@ paths:
           schema:
             $ref: '#/definitions/model.LoginUserResponseDTO'
         "400":
-          description: Body is missing mandatory fields or the email is invalid
+          description: Invalid body
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "401":
-          description: The email or password is wrong
+          description: Wrong email or password
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "415":
+          description: Content-Type is not application/json
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "429":
+          description: Too many requests
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Log in
+      tags:
+      - users
+  /users/logout:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: The refresh token to revoke
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.RefreshTokenRequestDTO'
+      responses:
+        "204":
+          description: Logged out
+        "400":
+          description: Invalid body
           schema:
             $ref: '#/definitions/model.ErrorResponse'
         "415":
@@ -833,7 +1485,7 @@ paths:
           description: Internal Server Error
           schema:
             $ref: '#/definitions/model.ErrorResponse'
-      summary: Log in a user
+      summary: Log out
       tags:
       - users
   /users/me/presentations:
@@ -876,11 +1528,52 @@ paths:
       summary: List my presentations
       tags:
       - presentations
+  /users/token/refresh:
+    post:
+      consumes:
+      - application/json
+      description: Exchanges a refresh token for a new access token and a new refresh
+        token. The old refresh token stops working. Presenting an already-used refresh
+        token ends every session of that user.
+      parameters:
+      - description: The refresh token
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/model.RefreshTokenRequestDTO'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/model.LoginUserResponseDTO'
+        "400":
+          description: Invalid body
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "401":
+          description: Refresh token invalid, expired or already used
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "415":
+          description: Content-Type is not application/json
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/model.ErrorResponse'
+      summary: Refresh the access token
+      tags:
+      - users
 schemes:
 - http
 securityDefinitions:
   BearerAuth:
-    description: Type "Bearer " followed by the token returned by POST /users/login.
+    description: Type "Bearer " followed by the access_token returned by POST /users/login
+      or POST /users/token/refresh.
     in: header
     name: Authorization
     type: apiKey
